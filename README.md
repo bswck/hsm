@@ -1,4 +1,4 @@
-# PROJECT_NAME
+# hsm – High School Maths
 
 ## ⚙️ Setup
 ## 🚀 How to run
