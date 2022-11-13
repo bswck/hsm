@@ -5,7 +5,7 @@ from hsm._objects import Object, Parameter, factory
 
 
 class Template(Object, factory_key='math_objects'):
-    math_objects: tuple[int] = Parameter(kind=Parameter.VAR_POSITIONAL)
+    math_objects: tuple[type[Object], ...] = Parameter(kind=Parameter.VAR_POSITIONAL)
 
     def __post_init__(self):
         self.registry = []
