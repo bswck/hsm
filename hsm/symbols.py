@@ -1,7 +1,7 @@
-from hsm import _lib
+from hsm._objects import Object
 
 
-class Symbol(_lib.Object, factory_key='name'):
+class Symbol(Object, factory_key='name'):
     name: str = 'x'
 
     def __repr__(self):

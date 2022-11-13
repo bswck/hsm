@@ -1,10 +1,8 @@
 import collections
-import functools
 import inspect
 import itertools
 import keyword
 import re
-import sys
 import types
 import typing
 import weakref
@@ -17,26 +15,37 @@ class HSMError(Exception):
 class CoercionFailureError(HSMError):
     MSG_DEFAULT = 'no additional information'
 
-    def __init__(self, obj=None):
+    def __init__(self, obj=None, param_name=None):
         if isinstance(obj, str):
             self.msg = obj
         elif isinstance(obj, bool):
             self.msg = self.MSG_DEFAULT
+        self._param_name = None
         self.args = self.msg,
+        self.param_name = param_name
+
+    @property
+    def param_name(self):
+        return self._param_name
+
+    @param_name.setter
+    def param_name(self, name):
+        self._param_name = name
+        self.args = ' '.join((self.msg.strip(), f'(parameter {name!r})')),
 
     def __bool__(self):
         return False
 
-    def __new__(cls, coercion_failure=None):
+    def __new__(cls, coercion_failure=None, param_name=None):
         if isinstance(coercion_failure, cls):
             return coercion_failure
-        return object.__new__(cls)
+        return HSMError.__new__(cls)
 
 
 class _HSMMeta(type):
     if __debug__:
         __constructor__: 'Constructor'
-        ops = None
+        __ops__ = None
 
         def __repr__(self):
             constructor = self.__constructor__
@@ -73,8 +82,6 @@ class Object(metaclass=_HSMMeta):
             factory_key_maker = cls.__constructor_factory_key__
             if constructor and factory_key_maker:
                 constructor.factory_key_maker = factory_key_maker
-        if cls.ops is None:
-            cls.ops = OperatorDispatcher()
 
     def __repr__(self):
         constructor = self.__constructor__
@@ -91,7 +98,7 @@ class _Sentinel:
 
     if __debug__:
         def __repr__(self):
-            return f'(special sentinel value)'
+            return f'<sentinel>'
 
 
 MISSING = _Sentinel()
@@ -131,16 +138,17 @@ class Coercion(CoercionBase):
         return object.__new__(cls)
 
     @staticmethod
-    def call_validator(validator, value):
+    def call_validator(validator, value, name=None):
         """Call object validator and ensure to include additional failure context, if provided."""
 
         if callable(validator):
             valid = validator(value)
             if isinstance(value, str) or not valid:
                 failure = CoercionFailureError(valid)
+                failure.param_name = name
                 raise failure from None
 
-    def coerce_valid(self, value):
+    def coerce_valid(self, value, name=None):
         """Try to coerce a valid value in a mathematical object construction."""
 
         data_type = self.data_type
@@ -155,9 +163,16 @@ class Coercion(CoercionBase):
             else:
                 # Need to cast the value to the proper data type.
                 # Validate before trying, then cast, and let the errors propagate if any.
-                self.call_validator(validator, value)
+                self.call_validator(validator, value, name=name)
                 if callable(self.cast):
-                    obj = self.cast(value)
+                    try:
+                        obj = self.cast(value)
+                    except Exception as exc:
+                        raise CoercionFailureError(
+                            f'could not cast {type(value).__name__} {value!r} '
+                            f'to {data_type.__name__}',
+                            param_name=name
+                        ) from exc
                 else:
                     obj = value
         # Expected data type is not provided, we assume the value is of an acceptable data type.
@@ -165,7 +180,7 @@ class Coercion(CoercionBase):
             obj = value
 
         # Validate the object of an acceptable data type.
-        self.call_validator(objective_validator, obj)
+        self.call_validator(objective_validator, obj, name=name)
         return obj
 
     if __debug__:
@@ -185,14 +200,19 @@ class Coercion(CoercionBase):
 
 class RecursiveCoercion(CoercionBase):
     class _LazyCollectionCoercion:
-        def __init__(self, coercion, iterable, depth):
+        def __init__(self, coercion, iterable, depth, name=None):
             self.coercion = coercion
             self.iterator = iter(iterable)
             self.depth = depth
+            self.name = name
 
         def __next__(self):
             next_obj = next(self.iterator)
-            return self.coercion.coerce_valid(next_obj, depth=self.depth)
+            return self.coercion.coerce_valid(
+                next_obj,
+                depth=self.depth,
+                name=self.name
+            )
 
     def __init__(
         self,
@@ -208,18 +228,18 @@ class RecursiveCoercion(CoercionBase):
         self.recursion_depth = recursion_depth
         self.lazy = lazy
 
-    def coerce_valid(self, value, depth=0):
+    def coerce_valid(self, value, depth=0, name=None):
         if isinstance(value, self.iterable_types):
-            if 0 < depth <= self.recursion_depth:
+            if 0 <= depth <= self.recursion_depth:
                 if self.lazy:
-                    return self._LazyCollectionCoercion(self, value, depth+1)
+                    return self._LazyCollectionCoercion(self, value, depth+1, name=name)
                 valid_elems = []
                 for elem in value:
-                    valid_elems.append(self.coerce_valid(elem, depth+1))
-                return valid_elems
+                    valid_elems.append(self.coerce_valid(elem, depth+1, name=name))
+                return self.result_coercion.coerce_valid(valid_elems, name=name)
         if depth > self.recursion_depth:
-            return self.element_coercion.coerce_valid(value)
-        return self.result_coercion.coerce_valid(value)
+            return self.element_coercion.coerce_valid(value, name=name)
+        return self.result_coercion.coerce_valid(value, name=name)
 
     if __debug__:
         def __repr__(self):
@@ -233,12 +253,23 @@ class RecursiveCoercion(CoercionBase):
             )
 
 
-class UnionCoercion(CoercionBase):
-    def __init__(self, *allowed_types):
-        self.data_type = allowed_types
+class SelectCoercion(CoercionBase):
+    def __init__(self, *coercions):
+        self.coercions = coercions
 
-    def coerce_valid(self, value):
-        return Coercion.coerce_valid(typing.cast(Coercion, self), value)
+    def coerce_valid(self, value, name=None):
+        valid = MISSING
+        for coercion in self.coercions:
+            try:
+                valid = coercion.coerce_valid(value, name=name)
+            except (HSMError, ValueError):
+                pass
+            if valid is not MISSING:
+                return value
+
+    if __debug__:
+        def __repr__(self):
+            return ' | '.join(map(repr, self.coercions))
 
 
 identity = Coercion()
@@ -247,6 +278,12 @@ identity = Coercion()
 class Parameter:
     KW_ONLY = _Sentinel()
 
+    POSITIONAL_ONLY = inspect.Parameter.POSITIONAL_ONLY
+    POSITIONAL_OR_KEYWORD = inspect.Parameter.POSITIONAL_OR_KEYWORD
+    VAR_POSITIONAL = inspect.Parameter.VAR_POSITIONAL
+    KEYWORD_ONLY = inspect.Parameter.KEYWORD_ONLY
+    VAR_KEYWORD = inspect.Parameter.VAR_KEYWORD
+
     def __init__(
         self,
         default=MISSING,
@@ -254,7 +291,7 @@ class Parameter:
         instance_factory=False,
         coercion=None,
         attribute=MISSING,
-        kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        kind=POSITIONAL_OR_KEYWORD,
     ):
         self.default = default
         self.default_factory = default_factory
@@ -267,7 +304,7 @@ class Parameter:
 
     ERROR = _Sentinel()
 
-    def set(self, instance, name, context, value=MISSING):
+    def set(self, name, context, instance=None, value=MISSING):
         if value is MISSING:
             default = self.default
             if default is MISSING:
@@ -278,36 +315,45 @@ class Parameter:
                     else:
                         value = default_factory()
                 else:
-                    context.missing.add(name)
-                    return self.ERROR
+                    if self.kind == self.VAR_POSITIONAL:
+                        value = ()
+                    elif self.kind == self.VAR_KEYWORD:
+                        value = {}
+                    else:
+                        context.missing.add(name)
+                        return self.ERROR
             else:
                 value = default
-        obj = self.coercion.coerce_valid(value)
-        attribute = self.attribute
-        if attribute is MISSING:
-            attribute = name
-        if isinstance(attribute, str):
-            setattr(instance, attribute, obj)
+        obj = self.coercion.coerce_valid(value, name=name)
+        if instance is not None:
+            attribute = self.attribute
+            if attribute is MISSING:
+                attribute = name
+            if isinstance(attribute, str):
+                setattr(instance, attribute, obj)
         return obj
 
     def to_inspect_obj(self, name):
         self.__default_name = name
+        default = {}
+        if self.kind not in (self.VAR_POSITIONAL, self.VAR_KEYWORD):
+            default.update(default=self.default)
         return inspect.Parameter(
             name=name,
             kind=self.kind,
-            default=self.default
+            **default
         )
 
     VAR_POS_PREFIX = '*'
     VAR_KW_PREFIX = '**'
     DEFAULT_JOIN = '='
-    DEFAULTF_JOIN = '->'
-    DEFAULTFI_JOIN = '~>'
+    DEFAULT_FAC_JOIN = '->'
+    DEFAULT_FACINST_JOIN = '~>'
     UNNAMED = '(unnamed)'
 
     PAT = re.compile(
         rf'(?P<variadic_prefix>{re.escape(VAR_POS_PREFIX)}|{re.escape(VAR_KW_PREFIX)})'
-        rf'(?P<name>\S+)((?P<join>{DEFAULT_JOIN}|{DEFAULTF_JOIN}|{DEFAULTFI_JOIN})'
+        rf'(?P<name>\S+)((?P<join>{DEFAULT_JOIN}|{DEFAULT_FAC_JOIN}|{DEFAULT_FACINST_JOIN})'
         rf'(?P<default>.*))?'
     )
 
@@ -320,13 +366,13 @@ class Parameter:
             variadic_prefix = data['variadic_prefix']
             name = data['name']
             default = data.get('default', MISSING)
-            default_is_factory = data.get('join') in (cls.DEFAULT_JOIN, cls.DEFAULTFI_JOIN)
+            default_is_factory = data.get('join') in (cls.DEFAULT_JOIN, cls.DEFAULT_FACINST_JOIN)
             if default_is_factory:
-                inst.instance_factory = data.get('join') == cls.DEFAULTFI_JOIN
+                inst.instance_factory = data.get('join') == cls.DEFAULT_FACINST_JOIN
             if variadic_prefix == cls.VAR_POS_PREFIX:
-                inst.kind = inspect.Parameter.VAR_POSITIONAL
+                inst.kind = cls.VAR_POSITIONAL
             if variadic_prefix == cls.VAR_POS_PREFIX:
-                inst.kind = inspect.Parameter.VAR_KEYWORD
+                inst.kind = cls.VAR_KEYWORD
             if keyword.iskeyword(name) or name.isidentifier():
                 raise ValueError('parameter name must be an identifier')
             if default:
@@ -345,20 +391,27 @@ class Parameter:
 
         def repr(self, name=None):
             repr_string = name or self.UNNAMED
-            if self.kind > inspect.Parameter.POSITIONAL_OR_KEYWORD:
-                if self.kind == inspect.Parameter.POSITIONAL_ONLY:
+            if self.kind in (self.VAR_POSITIONAL, self.VAR_KEYWORD):
+                if self.kind == self.VAR_POSITIONAL:
                     repr_string = self.VAR_POS_PREFIX + repr_string
-                elif self.kind == inspect.Parameter.KEYWORD_ONLY:
+                elif self.kind == self.VAR_KEYWORD:
                     repr_string = self.VAR_KW_PREFIX + repr_string
             default_obj = self.default or self.default_factory
             const = default_obj is self.default
             if default_obj:
                 join = (
-                    (self.DEFAULTF_JOIN, self.DEFAULTFI_JOIN)[self.instance_factory],
+                    (self.DEFAULT_FAC_JOIN, self.DEFAULT_FACINST_JOIN)[self.instance_factory],
                     self.DEFAULT_JOIN
                 )[const]
                 repr_string += join + repr(default_obj).join('()')
             return repr_string
+
+
+def factory(cb, instance=False):
+    return Parameter(
+        instance_factory=instance,
+        default_factory=cb
+    )
 
 
 class _AttributialItemOps:
@@ -390,6 +443,7 @@ class Constructor(collections.UserDict, _AttributialItemOps):
             self.instances = weakref.WeakValueDictionary()
         if kwargs:
             self.update(kwargs)
+        self.initialized = weakref.WeakSet()
         self.signature = None
         if not hasattr(self, 'factory_key_maker'):
             self.factory_key_maker = None
@@ -441,25 +495,51 @@ class Constructor(collections.UserDict, _AttributialItemOps):
                     arg_names = key_maker
                 # Unfortunately we cannot use ._bind() since it is private,
                 # thus it's needed to iter over args and kwargs again and again. :(
-                d = self.signature.bind(*args, **kwargs).arguments
-                key = tuple(d[arg_name] for arg_name in arg_names)
+                bound = self.signature.bind(*args, **kwargs).arguments
+                missing = set()
+                key = []
+                for arg_name in arg_names:
+                    try:
+                        key.append(bound[arg_name])
+                    except KeyError:
+                        param = self.parameters[arg_name]
+                        if (
+                            param.default is MISSING
+                            and param.default_factory
+                            and param.instance_factory
+                        ):
+                            raise ValueError(
+                                'constructor factory key parameter cannot take instance'
+                                'as an argument, because it can be not created yet'
+                            ) from None
+                        value = param.set(arg_name, Namespace(missing=missing))
+
+                        if value is not MISSING:
+                            key.append(value)
+                if missing:
+                    raise TypeError(
+                        f'{cls.__name__}.__new__() missing {len(missing)} '
+                        f'required argument(s): {", ".join(missing)}'
+                    ) from None
+                key = tuple(key)
 
             if key is MISSING:
                 raise ValueError('invalid key maker for factory constructor')
 
-            # Important, don't reference the instance
             try:
                 return self.instances[key]
             except KeyError:
-                ref = object.__new__(cls)
-                self.instances[key] = ref
-                return self.instances[key]
+                inst_ref = object.__new__(cls)
+                self.instances[key] = inst_ref
+                return inst_ref
 
         return object.__new__(cls)
 
     POST_INIT = '__post_init__'
 
-    def init(self, instance, args, kwargs):
+    def init(self, instance, args, kwargs, force=False):
+        if not force and instance in self.initialized:
+            return
         context = Namespace(missing=set())
         arguments = self.signature.bind(*args, **kwargs).arguments
         for argument, value in {
@@ -467,7 +547,7 @@ class Constructor(collections.UserDict, _AttributialItemOps):
             **arguments
         }.items():
             parameter = self.data[argument]
-            parameter.set(instance, argument, context, value)
+            parameter.set(argument, context, instance=instance, value=value)
         missing_args = context.missing
         if missing_args:
             cls_name = type(instance).__name__
@@ -477,7 +557,8 @@ class Constructor(collections.UserDict, _AttributialItemOps):
             )
         post_init = getattr(instance, self.POST_INIT, None)
         if callable(post_init):
-            post_init(instance)
+            post_init()
+        self.initialized.add(instance)
 
     @property
     def parameters(self):
@@ -506,9 +587,17 @@ def coercion_from_hint(hint):
         if origin in (typing.Annotated, typing.Generic):
             data_type = None
         elif issubclass(origin, types.UnionType):
-            return UnionCoercion(
+            return SelectCoercion(
                 *map(coercion_from_hint, args)
             )
+        elif origin in (type, typing.Type):
+            return Coercion(
+                data_type=type,
+                objective_validator=lambda obj: (
+                    (CoercionFailureError(f'expected {hint}'), True)[issubclass(obj, tuple(args))]
+                )
+            )
+
         result_coercion = Coercion(
             data_type=data_type,
             validator=validator
@@ -531,11 +620,18 @@ def generate_class_constructor(cls, only_attrs=None):
     hints = typing.get_type_hints(cls)
     if only_attrs is None and cls.__constructor_scan_annotations__:
         only_attrs = tuple(attr for attr in hints)
+    else:
+        only_attrs = tuple()
     args = {}
     make_kw_only = False
     for attr in only_attrs:
         coercion = None
         hint = hints.get(attr)
+        if hint is Parameter.KW_ONLY:
+            if make_kw_only:
+                raise HSMError('duplicated * in constructor signature')
+            make_kw_only = True
+            continue
         if hint:
             coercion = coercion_from_hint(hint)
         value = getattr(cls, attr, MISSING)
@@ -545,7 +641,7 @@ def generate_class_constructor(cls, only_attrs=None):
                 param.coercion = coercion
             args[attr] = param
             if make_kw_only:
-                if value.kind < inspect.Parameter.POSITIONAL_OR_KEYWORD:
+                if value.kind < Parameter.POSITIONAL_OR_KEYWORD:
                     raise HSMError(
                         'illegal parameter kind to be followed by * in constructor '
                         'signature'
@@ -554,224 +650,8 @@ def generate_class_constructor(cls, only_attrs=None):
             param = Parameter(default=value, coercion=coercion)
             args[attr] = param
         if make_kw_only:
-            param.kind = inspect.Parameter.KEYWORD_ONLY
-        if value is Parameter.KW_ONLY:
-            if make_kw_only:
-                raise HSMError('duplicated * in constructor signature')
-            make_kw_only = True
-            del args[attr]
+            param.kind = Parameter.KEYWORD_ONLY
     kwargs = cls.__constructor_kwargs__
     constructor = Constructor(args, **kwargs)
     cls.__constructor__ = constructor
     return constructor
-
-
-class OperatorDispatcher:
-    def abs(self, fn, *args, **kwargs):
-        pass
-
-    def add(self, fn, *args, **kwargs):
-        pass
-
-    def and_(self, fn, *args, **kwargs):
-        pass
-
-    def concat(self, fn, *args, **kwargs):
-        pass
-
-    def contains(self, fn, *args, **kwargs):
-        pass
-
-    def count_of(self, fn, *args, **kwargs):
-        pass
-
-    def delitem(self, fn, *args, **kwargs):
-        pass
-
-    def eq(self, fn, *args, **kwargs):
-        pass
-
-    def floordiv(self, fn, *args, **kwargs):
-        pass
-
-    def ge(self, fn, *args, **kwargs):
-        pass
-
-    def getitem(self, fn, *args, **kwargs):
-        pass
-
-    def gt(self, fn, *args, **kwargs):
-        pass
-
-    def iadd(self, fn, *args, **kwargs):
-        pass
-
-    def iand(self, fn, *args, **kwargs):
-        pass
-
-    def iconcat(self, fn, *args, **kwargs):
-        pass
-
-    def ifloordiv(self, fn, *args, **kwargs):
-        pass
-
-    def ilshift(self, fn, *args, **kwargs):
-        pass
-
-    def imatmul(self, fn, *args, **kwargs):
-        pass
-
-    def imod(self, fn, *args, **kwargs):
-        pass
-
-    def imul(self, fn, *args, **kwargs):
-        pass
-
-    def index(self, fn, *args, **kwargs):
-        pass
-
-    def index_of(self, fn, *args, **kwargs):
-        pass
-
-    def invert(self, fn, *args, **kwargs):
-        pass
-
-    inv = invert
-
-    def ior(self, fn, *args, **kwargs):
-        pass
-
-    def ipow(self, fn, *args, **kwargs):
-        pass
-
-    def irshift(self, fn, *args, **kwargs):
-        pass
-
-    def is_(self, fn, *args, **kwargs):
-        pass
-
-    def is_not(self, fn, *args, **kwargs):
-        pass
-
-    def isub(self, fn, *args, **kwargs):
-        pass
-
-    def itemgetter(self, fn, *args, **kwargs):
-        pass
-
-    def itruediv(self, fn, *args, **kwargs):
-        pass
-
-    def ixor(self, fn, *args, **kwargs):
-        pass
-
-    def le(self, fn, *args, **kwargs):
-        pass
-
-    def length_hint(self, fn, *args, **kwargs):
-        pass
-
-    def lshift(self, fn, *args, **kwargs):
-        pass
-
-    def lt(self, fn, *args, **kwargs):
-        pass
-
-    def matmul(self, fn, *args, **kwargs):
-        pass
-
-    def methodcaller(self, fn, *args, **kwargs):
-        pass
-
-    def mod(self, fn, *args, **kwargs):
-        pass
-
-    def mul(self, fn, *args, **kwargs):
-        pass
-
-    def ne(self, fn, *args, **kwargs):
-        pass
-
-    def neg(self, fn, *args, **kwargs):
-        pass
-
-    def not_(self, fn, *args, **kwargs):
-        pass
-
-    def or_(self, fn, *args, **kwargs):
-        pass
-
-    def pos(self, fn, *args, **kwargs):
-        pass
-
-    def pow(self, fn, *args, **kwargs):
-        pass
-
-    def rshift(self, fn, *args, **kwargs):
-        pass
-
-    def setitem(self, fn, *args, **kwargs):
-        pass
-
-    def sub(self, fn, *args, **kwargs):
-        pass
-
-    def truediv(self, fn, *args, **kwargs):
-        pass
-
-    def truth(self, fn, *args, **kwargs):
-        pass
-
-    def xor(self, fn, *args, **kwargs):
-        pass
-
-    _ops_to_fns = {
-        sys.intern('abs'): abs,
-        sys.intern('+'): add,
-        sys.intern('&'): and_,
-        sys.intern('+'): concat,
-        sys.intern('in'): contains,
-        sys.intern('del'): delitem,
-        sys.intern('=='): eq,
-        sys.intern('//'): floordiv,
-        sys.intern('>='): ge,
-        sys.intern('[]'): getitem,
-        sys.intern('>'): gt,
-        sys.intern('+='): iadd,
-        sys.intern('&='): iand,
-        sys.intern('+=,'): iconcat,
-        sys.intern('//='): ifloordiv,
-        sys.intern('<<='): ilshift,
-        sys.intern('@='): imatmul,
-        sys.intern('%='): imod,
-        sys.intern('*='): imul,
-        sys.intern('index'): index,
-        sys.intern('~'): invert,
-        sys.intern('|='): ior,
-        sys.intern('**='): ipow,
-        sys.intern('>>='): irshift,
-        sys.intern('is'): is_,
-        sys.intern('is not'): is_not,
-        sys.intern('-='): isub,
-        sys.intern('/='): itruediv,
-        sys.intern('^='): ixor,
-        sys.intern('<='): le,
-        sys.intern('<<'): lshift,
-        sys.intern('<'): lt,
-        sys.intern('@'): matmul,
-        sys.intern('%'): mod,
-        sys.intern('*'): mul,
-        sys.intern('!='): ne,
-        sys.intern('neg'): neg,
-        sys.intern('not'): not_,
-        sys.intern('|'): or_,
-        sys.intern('**'): pow,
-        sys.intern('>>'): rshift,
-        sys.intern('[]='): setitem,
-        sys.intern('-'): sub,
-        sys.intern('/'): truediv,
-        sys.intern('^'): xor,
-    }
-
-    def op(self, ch):
-        return functools.partial(self._ops_to_fns[sys.intern(ch)], self)
