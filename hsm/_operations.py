@@ -71,6 +71,3 @@ class Ops:
     IPOW = ipow = Operation('IPOW', '**=')
     ISUB = isub = Operation('ISUB', '-=')
     ITRUEDIV = itruediv = Operation('ITRUEDIV', '/=')
-
-
-print(Template('test'))
