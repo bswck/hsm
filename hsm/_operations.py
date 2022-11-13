@@ -10,10 +10,10 @@ class Template(Object, factory_key='math_objects'):
     def __post_init__(self):
         self.registry = []
 
-    def __call__(self, algo=None, *, priority=None, cond=None):
+    def __call__(self, algo=None, *, priority=0, cond=None):
         if algo is None:
             return functools.partial(self, priority=priority, cond=cond)
-        heapq.heappush(self.registry, (priority, cond, algo))
+        heapq.heappush(self.registry, (-priority, cond, algo))
         return algo
 
 
