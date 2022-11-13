@@ -28,8 +28,12 @@ class Operation(Object, factory_key='unique_name'):
     inverse: str | None = None
     chainable: bool = factory(lambda self: self.n_args > 1, True)
 
-    __getitem__ = __call__ = staticmethod(Template)
+    __call__ = staticmethod(Template)
 
+    def __getitem__(self, item):
+        if isinstance(item, tuple):
+            return self(*item)
+        return self(item)
 
 class Ops:
     ADD = add = Operation('ADD', '+', commutative=True)
