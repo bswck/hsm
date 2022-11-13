@@ -35,6 +35,7 @@ class Operation(Object, factory_key='unique_name'):
             return self(*item)
         return self(item)
 
+
 class Ops:
     ADD = add = Operation('ADD', '+', commutative=True)
     SUB = sub = Operation('SUB', '-')
