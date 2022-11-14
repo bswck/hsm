@@ -659,7 +659,7 @@ def generate_class_constructor(cls, only_attrs=None):
         if isinstance(value, Parameter):
             param = value
             if coercion:
-                param.coercions.insert(0, coercion)
+                param.add_coercion(coercion)
             args[attr] = param
             if make_kw_only:
                 if value.kind < Parameter.POSITIONAL_OR_KEYWORD:

@@ -65,8 +65,8 @@ class Ops:
     IS_IN = is_in = Operation('IS_IN', '∈', swapped='CONTAINS')
     GET = getitem = Operation('GET', '[]')  # commutative, but only in the C language
 
-    ABS = abs = Operation('ABS', 'abs', n_args=1)
-    INVERT = invert = Operation('INVERT', '~', n_args=1)
+    ABS = abs = Operation('ABS', '|%s|', n_args=1)
+    INVERT = invert = Operation('INVERT', '~%s', n_args=1)
 
     IADD = iadd = Operation('IADD', '+=')
     IAND = iand = Operation('IAND', '&=')
