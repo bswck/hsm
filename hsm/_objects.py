@@ -1,4 +1,5 @@
 import collections
+import functools
 import inspect
 import itertools
 import keyword
@@ -111,26 +112,29 @@ class CoercionBase:
 
 class Coercion(CoercionBase):
     """Simple single-value coercion."""
-    # Technical detail: don't make `data_type' and `validator' class variables.
+    # Technical detail: don't make `data_type' and `coercer' class variables.
 
     def __init__(
         self,
         data_type=None,
-        validator=None,
+        before_cast=None,
         cast=MISSING,
-        objective_validator=None,
+        after_cast=None,
     ):
         if not isinstance(data_type, type):
-            validator = validator
+            before_cast = data_type
             data_type = None
         if not hasattr(self, 'data_type'):
+            if isinstance(data_type, str):
+                before_cast = coercion_from_hint(data_type).coerce
+                data_type = None
             self.data_type = data_type
-        if not hasattr(self, 'validator'):
-            self.validator = validator
+        if not hasattr(self, 'coercer'):
+            self.before_cast = before_cast
         if cast is MISSING:
             cast = self.data_type
         self.cast = cast
-        self.objective_validator = objective_validator
+        self.after_cast = after_cast
 
     def __new__(cls, *args, **kwargs):
         if args and isinstance(args[0], CoercionBase):
@@ -138,22 +142,24 @@ class Coercion(CoercionBase):
         return object.__new__(cls)
 
     @staticmethod
-    def call_validator(validator, value, name=None):
-        """Call object validator and ensure to include additional failure context, if provided."""
+    def _coerce(coercer, value, name=None):
+        """Call object coercer and ensure to include additional failure context, if provided."""
 
-        if callable(validator):
-            valid = validator(value)
-            if isinstance(value, str) or not valid:
-                failure = CoercionFailureError(valid)
+        if callable(coercer):
+            try:
+                valid = coercer(value)
+            except CoercionFailureError as failure:
                 failure.param_name = name
                 raise failure from None
+            return valid
+        return value
 
-    def coerce_valid(self, value, name=None):
+    def coerce(self, value, name=None):
         """Try to coerce a valid value in a mathematical object construction."""
 
         data_type = self.data_type
-        objective_validator = self.objective_validator
-        validator = self.validator
+        before_cast = self.before_cast
+        after_cast = self.after_cast
 
         # Expected data type is provided, examine the value with reference to it.
         if data_type is not None:
@@ -163,7 +169,7 @@ class Coercion(CoercionBase):
             else:
                 # Need to cast the value to the proper data type.
                 # Validate before trying, then cast, and let the errors propagate if any.
-                self.call_validator(validator, value, name=name)
+                value = self._coerce(before_cast, value, name=name)
                 if callable(self.cast):
                     try:
                         obj = self.cast(value)
@@ -180,7 +186,7 @@ class Coercion(CoercionBase):
             obj = value
 
         # Validate the object of an acceptable data type.
-        self.call_validator(objective_validator, obj, name=name)
+        obj = self._coerce(after_cast, obj, name=name)
         return obj
 
     if __debug__:
@@ -189,10 +195,12 @@ class Coercion(CoercionBase):
             repr_chunks = []
             if self.data_type:
                 repr_chunks.append(f'type={self.data_type.__name__}')
-            if self.validator and self.validator is not self.data_type:
-                repr_chunks.append(f'validator={self.validator}')
+            if self.before_cast and self.before_cast is not self.data_type:
+                repr_chunks.append(f'before_cast={self.before_cast}')
             if self.cast is not self.data_type:
                 repr_chunks.append(f'cast={self.cast}')
+            if self.after_cast:
+                repr_chunks.append(f'after_cast={self.after_cast}')
             if not repr_chunks:
                 return repr_string % ('Null', '')
             return repr_string % ('', ' ' + ' '.join(repr_chunks))
@@ -208,7 +216,7 @@ class RecursiveCoercion(CoercionBase):
 
         def __next__(self):
             next_obj = next(self.iterator)
-            return self.coercion.coerce_valid(
+            return self.coercion.coerce(
                 next_obj,
                 depth=self.depth,
                 name=self.name
@@ -228,18 +236,18 @@ class RecursiveCoercion(CoercionBase):
         self.recursion_depth = recursion_depth
         self.lazy = lazy
 
-    def coerce_valid(self, value, depth=0, name=None):
+    def coerce(self, value, depth=0, name=None):
         if isinstance(value, self.iterable_types):
             if 0 <= depth <= self.recursion_depth:
                 if self.lazy:
                     return self._LazyCollectionCoercion(self, value, depth+1, name=name)
                 valid_elems = []
                 for elem in value:
-                    valid_elems.append(self.coerce_valid(elem, depth+1, name=name))
-                return self.result_coercion.coerce_valid(valid_elems, name=name)
+                    valid_elems.append(self.coerce(elem, depth+1, name=name))
+                return self.result_coercion.coerce(valid_elems, name=name)
         if depth > self.recursion_depth:
-            return self.element_coercion.coerce_valid(value, name=name)
-        return self.result_coercion.coerce_valid(value, name=name)
+            return self.element_coercion.coerce(value, name=name)
+        return self.result_coercion.coerce(value, name=name)
 
     if __debug__:
         def __repr__(self):
@@ -257,11 +265,11 @@ class SelectCoercion(CoercionBase):
     def __init__(self, *coercions):
         self.coercions = coercions
 
-    def coerce_valid(self, value, name=None):
+    def coerce(self, value, name=None):
         valid = MISSING
         for coercion in self.coercions:
             try:
-                valid = coercion.coerce_valid(value, name=name)
+                valid = coercion.coerce(value, name=name)
             except (HSMError, ValueError):
                 pass
             if valid is not MISSING:
@@ -286,10 +294,10 @@ class Parameter:
 
     def __init__(
         self,
+        *coercions,
         default=MISSING,
         default_factory=None,
         instance_factory=False,
-        coercion=None,
         attribute=MISSING,
         kind=POSITIONAL_OR_KEYWORD,
     ):
@@ -297,12 +305,22 @@ class Parameter:
         self.default_factory = default_factory
         self.instance_factory = instance_factory
         self.attribute = attribute
-        self.coercion = coercion or identity
+        self.coercions = list(coercions)
         self.kind = kind
 
         self.__default_name = None
 
     ERROR = _Sentinel()
+
+    def add_coercion(self, coercion, pos='f'):
+        if 'f' in pos:
+            self.coercions.insert(0, coercion)
+        if 'b' in pos:
+            self.coercions.append(coercion)
+
+    def remove_coercion(self, coercion):
+        while coercion in self.coercions:
+            self.coercions.remove(coercion)
 
     def set(self, name, context, instance=None, value=MISSING):
         if value is MISSING:
@@ -324,7 +342,7 @@ class Parameter:
                         return self.ERROR
             else:
                 value = default
-        obj = self.coercion.coerce_valid(value, name=name)
+        obj = functools.reduce(lambda v, c: c.coerce(v, name=name), self.coercions, value)
         if instance is not None:
             attribute = self.attribute
             if attribute is MISSING:
@@ -358,8 +376,8 @@ class Parameter:
     )
 
     @classmethod
-    def from_str(cls, string, coercion=None, default_parse=eval):
-        inst = cls(coercion=Coercion(coercion))
+    def from_str(cls, string, *coercions, default_parse=eval):
+        inst = cls(*coercions)
         match = cls.PAT.match(string)
         if match:
             data = match.groupdict()
@@ -407,11 +425,8 @@ class Parameter:
             return repr_string
 
 
-def factory(cb, instance=False):
-    return Parameter(
-        instance_factory=instance,
-        default_factory=cb
-    )
+Args = functools.partial(Parameter, kind=Parameter.VAR_POSITIONAL)
+KWArgs = functools.partial(Parameter, kind=Parameter.VAR_KEYWORD)
 
 
 class _AttributialItemOps:
@@ -499,10 +514,10 @@ class Constructor(collections.UserDict, _AttributialItemOps):
                 missing = set()
                 key = []
                 for arg_name in arg_names:
+                    param = self.parameters[arg_name]
                     try:
-                        key.append(bound[arg_name])
+                        specified_value = bound[arg_name]
                     except KeyError:
-                        param = self.parameters[arg_name]
                         if (
                             param.default is MISSING
                             and param.default_factory
@@ -513,9 +528,15 @@ class Constructor(collections.UserDict, _AttributialItemOps):
                                 'as an argument, because it can be not created yet'
                             ) from None
                         value = param.set(arg_name, Namespace(missing=missing))
-
                         if value is not MISSING:
                             key.append(value)
+                    else:
+                        value = param.set(
+                            arg_name,
+                            Namespace(missing=missing),
+                            value=specified_value
+                        )
+                        key.append(value)
                 if missing:
                     raise TypeError(
                         f'{cls.__name__}.__new__() missing {len(missing)} '
@@ -580,9 +601,9 @@ def coercion_from_hint(hint):
 
     if origin and args:
         if getattr(origin, '_nparams', None) == -1:
-            validator = (lambda obj: len(obj) == len(args))
+            coercer = (lambda obj: len(obj) == len(args))
         else:
-            validator = None
+            coercer = None
         data_type = origin
         if origin in (typing.Annotated, typing.Generic):
             data_type = None
@@ -591,23 +612,23 @@ def coercion_from_hint(hint):
                 *map(coercion_from_hint, args)
             )
         elif origin in (type, typing.Type):
+            def type_coercer(typ):
+                if not issubclass(typ, tuple(args)):
+                    raise CoercionFailureError(f'expected {hint}')
             return Coercion(
                 data_type=type,
-                objective_validator=lambda obj: (
-                    (CoercionFailureError(f'expected {hint}'), True)[issubclass(obj, tuple(args))]
-                )
+                after_cast=type_coercer
             )
-
         result_coercion = Coercion(
             data_type=data_type,
-            validator=validator
+            before_cast=coercer
         )
         coercion = RecursiveCoercion(result_coercion)
         while args:
             arg = args.popleft()
             if arg is ...:
-                # No length validator, ellipsis allows indefinite amount of elements
-                result_coercion.validator = None
+                # No length coercer, ellipsis allows indefinite amount of elements
+                result_coercion.before_cast = None
             else:
                 coercion.element_coercion = coercion_from_hint(arg)
         return coercion
@@ -638,7 +659,7 @@ def generate_class_constructor(cls, only_attrs=None):
         if isinstance(value, Parameter):
             param = value
             if coercion:
-                param.coercion = coercion
+                param.coercions.insert(0, coercion)
             args[attr] = param
             if make_kw_only:
                 if value.kind < Parameter.POSITIONAL_OR_KEYWORD:
@@ -647,7 +668,7 @@ def generate_class_constructor(cls, only_attrs=None):
                         'signature'
                     )
         else:
-            param = Parameter(default=value, coercion=coercion)
+            param = Parameter(coercion, default=value)
             args[attr] = param
         if make_kw_only:
             param.kind = Parameter.KEYWORD_ONLY

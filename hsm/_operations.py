@@ -1,7 +1,7 @@
 import functools
 import heapq
 
-from hsm._objects import Object, Parameter, factory
+from hsm._objects import Object, Parameter
 
 
 class Template(Object, factory_key='math_objects'):
@@ -21,12 +21,15 @@ class Operation(Object, factory_key='unique_name'):
     unique_name: str
     symbol: str
     _: Parameter.KW_ONLY
-    alternative_symbols: list[str] = factory(list)
+    alternative_symbols: list[str] = Parameter(default_factory=list)
     n_args: int = 2
     commutative: bool = False
     swapped: str | None = None
     inverse: str | None = None
-    chainable: bool = factory(lambda self: self.n_args > 1, True)
+    chainable: bool = Parameter(
+        default_factory=lambda self: self.n_args > 1,
+        instance_factory=True
+    )
 
     __call__ = staticmethod(Template)
 
