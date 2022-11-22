@@ -32,7 +32,7 @@ class CoercionFailureError(HSMError):
     @param_name.setter
     def param_name(self, name):
         self._param_name = name
-        self.args = ' '.join((self.msg.strip(), f'(parameter {name!r})')),
+        self.args = ' '.join((self.msg.strip(), *([f'(parameter {name!r})'] if name else []))),
 
     def __bool__(self):
         return False
@@ -43,19 +43,18 @@ class CoercionFailureError(HSMError):
         return HSMError.__new__(cls)
 
 
-class _HSMMeta(type):
-    if __debug__:
+if __debug__:
+    class _HSMMeta(type):
         __constructor__: 'Constructor'
-        __ops__ = None
 
         def __repr__(self):
             constructor = self.__constructor__
             if constructor:
-                return (
-                    f'<class {self.__qualname__}'
-                    f'{", ".join(map(repr, constructor.parameters.values())).join("()")}>'
-                )
+                return f'<class {self.__qualname__} {constructor!r}>'
             return type.__repr__(self)
+
+else:
+    _HSMMeta = type  # noqa
 
 
 class Object(metaclass=_HSMMeta):
@@ -84,13 +83,14 @@ class Object(metaclass=_HSMMeta):
             if constructor and factory_key_maker:
                 constructor.factory_key_maker = factory_key_maker
 
-    def __repr__(self):
-        constructor = self.__constructor__
-        if constructor:
-            return type(self).__qualname__ + ', '.join(
-                f'{name!s}={getattr(self, name)!r}' for name in constructor.attributes
-            ).join('()')
-        return object.__repr__(self)
+    if __debug__:
+        def __repr__(self):
+            constructor = self.__constructor__
+            if constructor:
+                return type(self).__qualname__ + ', '.join(
+                    f'{name!s}={getattr(self, name)!r}' for name in constructor.attributes
+                ).join('()')
+            return object.__repr__(self)
 
 
 class _Sentinel:
@@ -112,7 +112,6 @@ class CoercionBase:
 
 class Coercion(CoercionBase):
     """Simple single-value coercion."""
-    # Technical detail: don't make `data_type' and `coercer' class variables.
 
     def __init__(
         self,
@@ -124,22 +123,16 @@ class Coercion(CoercionBase):
         if not isinstance(data_type, type):
             before_cast = data_type
             data_type = None
-        if not hasattr(self, 'data_type'):
+        if data_type:
             if isinstance(data_type, str):
                 before_cast = coercion_from_hint(data_type).coerce
                 data_type = None
-            self.data_type = data_type
-        if not hasattr(self, 'coercer'):
-            self.before_cast = before_cast
+        self.data_type = data_type
+        self.before_cast = before_cast
+        self.after_cast = after_cast
         if cast is MISSING:
             cast = self.data_type
         self.cast = cast
-        self.after_cast = after_cast
-
-    def __new__(cls, *args, **kwargs):
-        if args and isinstance(args[0], CoercionBase):
-            return args[0]
-        return object.__new__(cls)
 
     @staticmethod
     def _coerce(coercer, value, name=None):
@@ -230,8 +223,8 @@ class RecursiveCoercion(CoercionBase):
         recursion_depth=0,
         iterable_types=typing.Iterable
     ):
-        self.result_coercion = Coercion(result_coercion)
-        self.element_coercion = Coercion(element_coercion)
+        self.result_coercion = result_coercion
+        self.element_coercion = element_coercion
         self.iterable_types = iterable_types
         self.recursion_depth = recursion_depth
         self.lazy = lazy
@@ -262,18 +255,21 @@ class RecursiveCoercion(CoercionBase):
 
 
 class SelectCoercion(CoercionBase):
+    EXCEPTIONS = (Exception,)
+
     def __init__(self, *coercions):
         self.coercions = coercions
 
     def coerce(self, value, name=None):
         valid = MISSING
-        for coercion in self.coercions:
+        for coercion in self.coercions[::-1]:
             try:
                 valid = coercion.coerce(value, name=name)
-            except (HSMError, ValueError):
+            except self.EXCEPTIONS:
                 pass
             if valid is not MISSING:
-                return value
+                return valid
+        raise CoercionFailureError(f'value {value} any of coercions {self}')
 
     if __debug__:
         def __repr__(self):
@@ -312,10 +308,10 @@ class Parameter:
 
     ERROR = _Sentinel()
 
-    def add_coercion(self, coercion, pos='f'):
-        if 'f' in pos:
+    def add_coercion(self, coercion, location='f'):
+        if 'f' in location:
             self.coercions.insert(0, coercion)
-        if 'b' in pos:
+        if 'b' in location:
             self.coercions.append(coercion)
 
     def remove_coercion(self, coercion):
@@ -367,7 +363,7 @@ class Parameter:
     DEFAULT_JOIN = '='
     DEFAULT_FAC_JOIN = '->'
     DEFAULT_FACINST_JOIN = '~>'
-    UNNAMED = '(unnamed)'
+    UNNAMED = '(param?)'
 
     PAT = re.compile(
         rf'(?P<variadic_prefix>{re.escape(VAR_POS_PREFIX)}|{re.escape(VAR_KW_PREFIX)})'
@@ -593,17 +589,37 @@ class Constructor(collections.UserDict, _AttributialItemOps):
             if param.attribute is not None
         )
 
+    def __repr__(self):
+        return ', '.join(map(repr, self.parameters.values())).join('()')
+
+
+# TODO: update to fully reflect typing generic aliases
+_GENERIC_MAP = {tuple: typing.Tuple}
+
+
+def _get_nparams(origin):
+    origin = _GENERIC_MAP.get(origin, origin)
+    return getattr(origin, '_nparams', None)
+
 
 def coercion_from_hint(hint):
     # Correctly handle Generic types
+    # Not that correctly the Annotated ones
     origin = typing.get_origin(hint)
     args = collections.deque(typing.get_args(hint))
 
     if origin and args:
-        if getattr(origin, '_nparams', None) == -1:
-            coercer = (lambda obj: len(obj) == len(args))
+        if _get_nparams(origin) == -1:
+            expected = len(args)
+
+            def coerce_func(obj):
+                passed = len(obj)
+                if passed != expected:
+                    raise CoercionFailureError(f'expected {expected} argument(s), got {passed}')
+                return obj
+
         else:
-            coercer = None
+            coerce_func = None
         data_type = origin
         if origin in (typing.Annotated, typing.Generic):
             data_type = None
@@ -612,22 +628,23 @@ def coercion_from_hint(hint):
                 *map(coercion_from_hint, args)
             )
         elif origin in (type, typing.Type):
-            def type_coercer(typ):
+            def coerce_func(typ):
                 if not issubclass(typ, tuple(args)):
                     raise CoercionFailureError(f'expected {hint}')
+                return typ
             return Coercion(
                 data_type=type,
-                after_cast=type_coercer
+                after_cast=coerce_func
             )
         result_coercion = Coercion(
             data_type=data_type,
-            before_cast=coercer
+            before_cast=coerce_func
         )
-        coercion = RecursiveCoercion(result_coercion)
+        coercion = RecursiveCoercion(result_coercion=result_coercion)
         while args:
             arg = args.popleft()
             if arg is ...:
-                # No length coercer, ellipsis allows indefinite amount of elements
+                # No length coercion, ellipsis allows indefinite amount of elements
                 result_coercion.before_cast = None
             else:
                 coercion.element_coercion = coercion_from_hint(arg)
@@ -637,31 +654,33 @@ def coercion_from_hint(hint):
     return Coercion(hint)
 
 
-def generate_class_constructor(cls, only_attrs=None):
+def generate_class_constructor(cls, attrs=None):
     hints = typing.get_type_hints(cls)
-    if only_attrs is None and cls.__constructor_scan_annotations__:
-        only_attrs = tuple(attr for attr in hints)
+    if attrs is None and cls.__constructor_scan_annotations__:
+        attrs = tuple(attr for attr in hints)
     else:
-        only_attrs = tuple()
+        attrs = tuple()
     args = {}
-    make_kw_only = False
-    for attr in only_attrs:
+    kw_only = False
+    for attr in attrs:
         coercion = None
         hint = hints.get(attr)
-        if hint is Parameter.KW_ONLY:
-            if make_kw_only:
-                raise HSMError('duplicated * in constructor signature')
-            make_kw_only = True
-            continue
         if hint:
-            coercion = coercion_from_hint(hint)
+            coercion = coercion_from_hint(
+                hint,
+            )
+        if hint is Parameter.KW_ONLY:
+            if kw_only:
+                raise HSMError('duplicated * in constructor signature')
+            kw_only = True
+            continue
         value = getattr(cls, attr, MISSING)
         if isinstance(value, Parameter):
             param = value
-            if coercion:
-                param.add_coercion(coercion)
             args[attr] = param
-            if make_kw_only:
+            if coercion:
+                param.add_coercion(coercion, location='fb')
+            if kw_only:
                 if value.kind < Parameter.POSITIONAL_OR_KEYWORD:
                     raise HSMError(
                         'illegal parameter kind to be followed by * in constructor '
@@ -670,7 +689,7 @@ def generate_class_constructor(cls, only_attrs=None):
         else:
             param = Parameter(coercion, default=value)
             args[attr] = param
-        if make_kw_only:
+        if kw_only:
             param.kind = Parameter.KEYWORD_ONLY
     kwargs = cls.__constructor_kwargs__
     constructor = Constructor(args, **kwargs)
