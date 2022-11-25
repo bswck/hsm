@@ -689,8 +689,7 @@ class Constructor(collections.UserDict, _AttributialItemOps):
         return ', '.join(map(repr, self.parameters.values())).join('()')
 
 
-def _generic_reflection(member):
-    _, tp = member
+def _generic_reflection(tp):
     reflection = None
     if hasattr(tp, '_nparams'):
         orig = typing.get_origin(tp)
@@ -698,7 +697,7 @@ def _generic_reflection(member):
     return reflection
 
 
-_GENERIC_REFLECTIONS = dict(filter(None, map(_generic_reflection, inspect.getmembers(typing))))
+_GENERIC_REFLECTIONS = dict(filter(None, map(_generic_reflection, vars(typing).values())))
 
 
 def _get_nparams(origin):
