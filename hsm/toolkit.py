@@ -51,14 +51,14 @@ if __debug__:
         def __repr__(self):
             constructor = self.__constructor__
             if constructor:
-                return f'<class {self.__qualname__} {constructor!r}>'
+                return f'<class {self.__qualname__}{constructor!r}>'
             return type.__repr__(self)
 
 else:
     _TypingMeta = type  # noqa
 
 
-class AutoClass(metaclass=_AutoClassMeta):
+class Dataclass(metaclass=_AutoClassMeta):
     __constructor__ = None
     __constructor_scan_annotations__ = True
     __constructor_kwargs__ = {}
@@ -120,8 +120,8 @@ class Coercion(CoercionBase):
         self,
         data_type=None,
         before_cast=None,
-        cast=MISSING,
         after_cast=None,
+        cast=MISSING,
     ):
         if not isinstance(data_type, type):
             before_cast = data_type
@@ -517,8 +517,8 @@ class Parameter:
             return self.repr(name=self.__default_name or 'argument')
 
 
-Args = functools.partial(Parameter, kind=Parameter.VAR_POSITIONAL)
-KWArgs = functools.partial(Parameter, kind=Parameter.VAR_KEYWORD)
+Args = Arguments = functools.partial(Parameter, kind=Parameter.VAR_POSITIONAL)
+KWArgs = KeywordArguments = functools.partial(Parameter, kind=Parameter.VAR_KEYWORD)
 
 
 class _AttributialItemOps:
@@ -705,7 +705,7 @@ def _get_nparams(origin):
     return getattr(origin, '_nparams', None)
 
 
-def coercion_from_hint(hint):
+def _hint_coercion_factory(hint):
     # Correctly handle Generic types
     # Not that correctly the Annotated ones
     origin = typing.get_origin(hint)
@@ -751,26 +751,36 @@ def coercion_from_hint(hint):
                 result_coercion.before_cast = None
             else:
                 coercion.element_coercion = coercion_from_hint(arg)
-
         return coercion
 
     # ...and non-generic ones
     return Coercion(hint)
 
 
-def attrs_predicate(member, hints):
+hint_coercions = functools.singledispatch(_hint_coercion_factory)
+hint_coercions.register = (lambda cls, fn: hint_coercions.register(cls)(fn))
+
+
+def coercion_from_hint(hint):
+    return hint_coercions(hint)
+
+
+def attribute_predicate(member, hints):
     name, value = member
     return name in hints or isinstance(value, Parameter)
 
 
-def generate_class_constructor(cls, attrs=None):
+def generate_class_constructor(
+    cls,
+    attributes=None,
+):
     hints = typing.get_type_hints(cls)
-    if attrs is None:
+    if attributes is None:
         ordered_hints = tuple(hints)
-        attrs = sorted(
+        attributes = sorted(
             dict(
                 filter(
-                    functools.partial(attrs_predicate, hints=hints),
+                    functools.partial(attribute_predicate, hints=hints),
                     dict(inspect.getmembers(cls), **hints).items()
                 )
             ),
@@ -778,22 +788,20 @@ def generate_class_constructor(cls, attrs=None):
         )
     args = {}
     kw_only = False
-    for attr in attrs:
+    for attribute in attributes:
         coercion = None
-        hint = hints.get(attr)
+        hint = hints.get(attribute)
         if hint:
-            coercion = coercion_from_hint(
-                hint,
-            )
+            coercion = coercion_from_hint(hint)
         if hint is Parameter.KW_ONLY:
             if kw_only:
                 raise _HSMTypingError('duplicated * in constructor signature')
             kw_only = True
             continue
-        value = getattr(cls, attr, MISSING)
+        value = getattr(cls, attribute, MISSING)
         if isinstance(value, Parameter):
             param = value
-            args[attr] = param
+            args[attribute] = param
             if coercion:
                 param.add_coercion(coercion, location='fb', _is_hint_coercion=hint is not None)
             if kw_only:
@@ -804,15 +812,15 @@ def generate_class_constructor(cls, attrs=None):
                     )
         else:
             param = Parameter(coercion, default=value)
-            args[attr] = param
+            args[attribute] = param
         if param.kind == Parameter.VAR_POSITIONAL:
             kw_only = True
         if param.is_factory_key:
             factory_key = cls.__constructor_factory_key__ or ()
             if isinstance(factory_key, str):
                 factory_key = factory_key.replace(',', ' ').split()
-            if attr not in factory_key:
-                factory_key = (*factory_key, attr)
+            if attribute not in factory_key:
+                factory_key = (*factory_key, attribute)
             cls.__constructor_factory_key__ = factory_key
         if kw_only:
             param.kind = Parameter.KEYWORD_ONLY
