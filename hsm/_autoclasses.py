@@ -754,11 +754,11 @@ def generate_class_constructor(cls, attrs=None):
             param = Parameter(coercion, default=value)
             args[attr] = param
         if param.is_factory_key:
-            factory_key = cls.__constructor_factory_key__
+            factory_key = cls.__constructor_factory_key__ or ()
             if isinstance(factory_key, str):
                 factory_key = factory_key.replace(',', ' ').split()
             if attr not in factory_key:
-                factory_key = [*factory_key, attr]
+                factory_key = (*factory_key, attr)
             cls.__constructor_factory_key__ = factory_key
         if kw_only:
             param.kind = Parameter.KEYWORD_ONLY
