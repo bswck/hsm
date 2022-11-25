@@ -1,8 +1,8 @@
-from hsm._autoclasses import AutoClass
+from hsm._autoclasses import AutoClass, Parameter
 
 
-class Letter(AutoClass, factory_key='name'):
-    name: str = 'x'
+class Letter(AutoClass):
+    name: str = Parameter(default='x', factory_key=True)
 
     def __repr__(self):
         return self.name
