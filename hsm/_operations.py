@@ -1,7 +1,7 @@
 import functools
 import heapq
 
-from hsm._objects import Object, Parameter
+from hsm._autoclasses import AutoClass, Parameter
 
 
 class GlobalOperationRegistry(dict):
@@ -21,8 +21,12 @@ class GlobalOperationRegistry(dict):
                 raise exc from None
 
 
-class OperationImplementation(Object, factory_key='obj_types'):
-    operand_types: tuple[type[Object], ...] = Parameter(kind=Parameter.VAR_POSITIONAL)
+class OperationImplementation(AutoClass):
+    operand_types: tuple[type, ...] = Parameter(
+        factory_key=True,
+        kind=Parameter.VAR_POSITIONAL,
+        cast=False,
+    )
     registry: GlobalOperationRegistry = Parameter(default_factory=GlobalOperationRegistry)
 
     def __post_init__(self):
@@ -36,8 +40,8 @@ class OperationImplementation(Object, factory_key='obj_types'):
         return fn
 
 
-class Operation(Object, factory_key='unique_name'):
-    unique_name: str
+class Operation(AutoClass):
+    unique_name: str = Parameter(factory_key=True)
     symbol: str
     _: Parameter.KW_ONLY
     alternative_symbols: list[str] = Parameter(default_factory=list)

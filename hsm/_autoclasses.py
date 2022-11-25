@@ -9,11 +9,11 @@ import typing
 import weakref
 
 
-class HSMError(Exception):
-    """HSM error."""
+class _HSMTypingError(Exception):
+    pass
 
 
-class CoercionFailureError(HSMError):
+class CoercionFailureError(_HSMTypingError):
     MSG_DEFAULT = 'no additional information'
 
     def __init__(self, obj=None, param_name=None):
@@ -40,11 +40,11 @@ class CoercionFailureError(HSMError):
     def __new__(cls, coercion_failure=None, param_name=None):
         if isinstance(coercion_failure, cls):
             return coercion_failure
-        return HSMError.__new__(cls)
+        return _HSMTypingError.__new__(cls)
 
 
 if __debug__:
-    class _HSMMeta(type):
+    class _AutoClassMeta(type):
         __constructor__: 'Constructor'
 
         def __repr__(self):
@@ -54,10 +54,10 @@ if __debug__:
             return type.__repr__(self)
 
 else:
-    _HSMMeta = type  # noqa
+    _TypingMeta = type  # noqa
 
 
-class Object(metaclass=_HSMMeta):
+class AutoClass(metaclass=_AutoClassMeta):
     __constructor__ = None
     __constructor_scan_annotations__ = True
     __constructor_kwargs__ = {}
@@ -73,6 +73,8 @@ class Object(metaclass=_HSMMeta):
         constructor = self.__constructor__
         if constructor:
             constructor.init(self, args, kwargs)
+        else:
+            raise TypeError(f'{type(self).__name__}() takes no arguments')
 
     def __init_subclass__(cls, generate_constructor=True, factory_key=None):
         if factory_key:
@@ -134,21 +136,51 @@ class Coercion(CoercionBase):
             cast = self.data_type
         self.cast = cast
 
+        self.__no_cast = None
+
     @staticmethod
-    def _coerce(coercer, value, name=None):
+    def _coerce(callee, value, name=None):
         """Call object coercer and ensure to include additional failure context, if provided."""
 
-        if callable(coercer):
+        if callable(callee):
             try:
-                valid = coercer(value)
+                valid = callee(value)
             except CoercionFailureError as failure:
                 failure.param_name = name
                 raise failure from None
             return valid
         return value
 
+    def with_cast(self, cast):
+        if cast is None:
+            cached = self.__no_cast
+            if cached:
+                if (
+                    self.data_type is cached.data_type
+                    and self.before_cast is cached.before_cast
+                    and self.after_cast is cached.after_cast
+                    and cached.cast is None
+                ):
+                    return cached
+            if self.cast is None:
+                self.__no_cast = self
+            else:
+                self.__no_cast = type(self)(
+                    data_type=self.data_type,
+                    before_cast=self.before_cast,
+                    cast=None,
+                    after_cast=self.after_cast
+                )
+            return self.__no_cast
+        return type(self)(
+            data_type=self.data_type,
+            before_cast=self.before_cast,
+            cast=cast,
+            after_cast=self.after_cast
+        )
+
     def coerce(self, value, name=None):
-        """Try to coerce a valid value in a mathematical object construction."""
+        """Try to coerce a valid value for construction."""
 
         data_type = self.data_type
         before_cast = self.before_cast
@@ -293,28 +325,46 @@ class Parameter:
         *coercions,
         default=MISSING,
         default_factory=None,
+        cast=MISSING,
         instance_factory=False,
+        allow_hint_coercions=True,
         attribute=MISSING,
         kind=POSITIONAL_OR_KEYWORD,
+        factory_key=False,
     ):
         self.default = default
         self.default_factory = default_factory
         self.instance_factory = instance_factory
         self.attribute = attribute
-        self.coercions = list(coercions)
+        self.allow_hint_coercions = allow_hint_coercions
+        self.is_factory_key = factory_key
+
+        self.coercions = []
+        self.coercions[:] = map(self.map_coercion, coercions)
+
         self.kind = kind
+        self.cast = cast
 
         self.__default_name = None
 
     ERROR = _Sentinel()
 
-    def add_coercion(self, coercion, location='f'):
+    def map_coercion(self, coercion):
+        if self.cast is not MISSING:
+            coercion = coercion.with_cast(self.cast)
+        return coercion
+
+    def add_coercion(self, coercion, location='f', _is_hint_coercion=False):
+        if _is_hint_coercion and not self.allow_hint_coercions:
+            return
+        coercion = self.map_coercion(coercion)
         if 'f' in location:
             self.coercions.insert(0, coercion)
         if 'b' in location:
             self.coercions.append(coercion)
 
     def remove_coercion(self, coercion):
+        coercion = self.map_coercion(coercion)
         while coercion in self.coercions:
             self.coercions.remove(coercion)
 
@@ -338,7 +388,11 @@ class Parameter:
                         return self.ERROR
             else:
                 value = default
-        obj = functools.reduce(lambda v, c: c.coerce(v, name=name), self.coercions, value)
+        obj = functools.reduce(
+            lambda cur_value, cur_coercion:
+            cur_coercion.coerce(cur_value, name=name),
+            self.coercions, value
+        )
         if instance is not None:
             attribute = self.attribute
             if attribute is MISSING:
@@ -593,12 +647,20 @@ class Constructor(collections.UserDict, _AttributialItemOps):
         return ', '.join(map(repr, self.parameters.values())).join('()')
 
 
-# TODO: update to fully reflect typing generic aliases
-_GENERIC_MAP = {tuple: typing.Tuple}
+def _generic_reflection(member):
+    _, tp = member
+    reflection = None
+    if hasattr(tp, '_nparams'):
+        orig = typing.get_origin(tp)
+        reflection = orig, tp
+    return reflection
+
+
+_GENERIC_REFLECTIONS = dict(filter(None, map(_generic_reflection, inspect.getmembers(typing))))
 
 
 def _get_nparams(origin):
-    origin = _GENERIC_MAP.get(origin, origin)
+    origin = _GENERIC_REFLECTIONS.get(origin, origin)
     return getattr(origin, '_nparams', None)
 
 
@@ -648,6 +710,7 @@ def coercion_from_hint(hint):
                 result_coercion.before_cast = None
             else:
                 coercion.element_coercion = coercion_from_hint(arg)
+
         return coercion
 
     # ...and non-generic ones
@@ -656,10 +719,11 @@ def coercion_from_hint(hint):
 
 def generate_class_constructor(cls, attrs=None):
     hints = typing.get_type_hints(cls)
-    if attrs is None and cls.__constructor_scan_annotations__:
-        attrs = tuple(attr for attr in hints)
-    else:
-        attrs = tuple()
+    if attrs is None:
+        attrs = ()
+        if cls.__constructor_scan_annotations__:
+            attrs += tuple(hints)
+        attrs += tuple(dict(inspect.getmembers(cls, lambda member: isinstance(member, Parameter))))
     args = {}
     kw_only = False
     for attr in attrs:
@@ -671,7 +735,7 @@ def generate_class_constructor(cls, attrs=None):
             )
         if hint is Parameter.KW_ONLY:
             if kw_only:
-                raise HSMError('duplicated * in constructor signature')
+                raise _HSMTypingError('duplicated * in constructor signature')
             kw_only = True
             continue
         value = getattr(cls, attr, MISSING)
@@ -679,16 +743,23 @@ def generate_class_constructor(cls, attrs=None):
             param = value
             args[attr] = param
             if coercion:
-                param.add_coercion(coercion, location='fb')
+                param.add_coercion(coercion, location='fb', _is_hint_coercion=hint is not None)
             if kw_only:
                 if value.kind < Parameter.POSITIONAL_OR_KEYWORD:
-                    raise HSMError(
+                    raise _HSMTypingError(
                         'illegal parameter kind to be followed by * in constructor '
                         'signature'
                     )
         else:
             param = Parameter(coercion, default=value)
             args[attr] = param
+        if param.is_factory_key:
+            factory_key = cls.__constructor_factory_key__
+            if isinstance(factory_key, str):
+                factory_key = factory_key.replace(',', ' ').split()
+            if attr not in factory_key:
+                factory_key = [*factory_key, attr]
+            cls.__constructor_factory_key__ = factory_key
         if kw_only:
             param.kind = Parameter.KEYWORD_ONLY
     kwargs = cls.__constructor_kwargs__

@@ -1,7 +1,7 @@
-from hsm._objects import Object
+from hsm._autoclasses import AutoClass
 
 
-class Letter(Object, factory_key='name'):
+class Letter(AutoClass, factory_key='name'):
     name: str = 'x'
 
     def __repr__(self):
