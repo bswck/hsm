@@ -27,7 +27,9 @@ class OperationImplementation(AutoClass):
         kind=Parameter.VAR_POSITIONAL,
         cast=False,
     )
-    registry: GlobalOperationRegistry = Parameter(default_factory=GlobalOperationRegistry)
+    registry: GlobalOperationRegistry = Parameter(
+        default_factory=GlobalOperationRegistry,
+    )
 
     def __post_init__(self):
         self.dispatch = []

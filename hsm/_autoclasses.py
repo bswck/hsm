@@ -3,6 +3,7 @@ import functools
 import inspect
 import itertools
 import keyword
+import operator
 import re
 import types
 import typing
@@ -261,6 +262,26 @@ class RecursiveCoercion(CoercionBase):
         self.recursion_depth = recursion_depth
         self.lazy = lazy
 
+    def with_cast(self, cast):
+        result_coercion = self.result_coercion
+        if result_coercion:
+            result_coercion = result_coercion.with_cast(cast)
+
+        element_coercion = self.element_coercion
+        if element_coercion:
+            element_coercion = element_coercion.with_cast(cast)
+
+        if result_coercion is self.result_coercion and element_coercion is self.element_coercion:
+            return self
+
+        return type(self)(
+            result_coercion=result_coercion,
+            element_coercion=element_coercion,
+            lazy=self.lazy,
+            recursion_depth=self.recursion_depth,
+            iterable_types=self.iterable_types
+        )
+
     def coerce(self, value, depth=0, name=None):
         if isinstance(value, self.iterable_types):
             if 0 <= depth <= self.recursion_depth:
@@ -291,6 +312,12 @@ class SelectCoercion(CoercionBase):
 
     def __init__(self, *coercions):
         self.coercions = coercions
+
+    def with_cast(self, cast):
+        coercions = [coercion.with_cast(cast) for coercion in self.coercions]
+        if all(map(operator.is_, self.coercions, coercions)):
+            return self
+        return type(self)(*coercions)
 
     def coerce(self, value, name=None):
         valid = MISSING
@@ -338,12 +365,12 @@ class Parameter:
         self.attribute = attribute
         self.allow_hint_coercions = allow_hint_coercions
         self.is_factory_key = factory_key
+        self.cast = cast
 
         self.coercions = []
         self.coercions[:] = map(self.map_coercion, coercions)
 
         self.kind = kind
-        self.cast = cast
 
         self.__default_name = None
 
@@ -453,26 +480,41 @@ class Parameter:
             raise ValueError('parameter string did not match')
         return inst
 
+    def repr(self, name=None):
+        repr_string = name or self.UNNAMED
+        if self.kind in (self.VAR_POSITIONAL, self.VAR_KEYWORD):
+            if self.kind == self.VAR_POSITIONAL:
+                repr_string = self.VAR_POS_PREFIX + repr_string
+            elif self.kind == self.VAR_KEYWORD:
+                repr_string = self.VAR_KW_PREFIX + repr_string
+        default_obj = self.default or self.default_factory
+        const = default_obj is self.default
+        if default_obj:
+            join = (
+                (self.DEFAULT_FAC_JOIN, self.DEFAULT_FACINST_JOIN)[self.instance_factory],
+                self.DEFAULT_JOIN
+            )[const]
+            repr_string += join
+            obj = getattr(
+                self.default_factory if self.default_factory else self.default,
+                '__name__',
+                None
+            )
+            if self.default_factory and obj:
+                obj += '()'
+            if obj:
+                repr_string += obj
+            else:
+                if self.default_factory:
+                    chunk = repr(self.default_factory).join('()')
+                else:
+                    chunk = repr(self.default)
+                repr_string += chunk
+        return repr_string
+
     if __debug__:
         def __repr__(self):
             return self.repr(name=self.__default_name or 'argument')
-
-        def repr(self, name=None):
-            repr_string = name or self.UNNAMED
-            if self.kind in (self.VAR_POSITIONAL, self.VAR_KEYWORD):
-                if self.kind == self.VAR_POSITIONAL:
-                    repr_string = self.VAR_POS_PREFIX + repr_string
-                elif self.kind == self.VAR_KEYWORD:
-                    repr_string = self.VAR_KW_PREFIX + repr_string
-            default_obj = self.default or self.default_factory
-            const = default_obj is self.default
-            if default_obj:
-                join = (
-                    (self.DEFAULT_FAC_JOIN, self.DEFAULT_FACINST_JOIN)[self.instance_factory],
-                    self.DEFAULT_JOIN
-                )[const]
-                repr_string += join + repr(default_obj).join('()')
-            return repr_string
 
 
 Args = functools.partial(Parameter, kind=Parameter.VAR_POSITIONAL)
@@ -717,13 +759,24 @@ def coercion_from_hint(hint):
     return Coercion(hint)
 
 
+def attrs_predicate(member, hints):
+    name, value = member
+    return name in hints or isinstance(value, Parameter)
+
+
 def generate_class_constructor(cls, attrs=None):
     hints = typing.get_type_hints(cls)
     if attrs is None:
-        attrs = ()
-        if cls.__constructor_scan_annotations__:
-            attrs += tuple(hints)
-        attrs += tuple(dict(inspect.getmembers(cls, lambda member: isinstance(member, Parameter))))
+        ordered_hints = tuple(hints)
+        attrs = sorted(
+            dict(
+                filter(
+                    functools.partial(attrs_predicate, hints=hints),
+                    dict(inspect.getmembers(cls), **hints).items()
+                )
+            ),
+            key=lambda obj: ordered_hints.index(obj) if obj in ordered_hints else INFINITE
+        )
     args = {}
     kw_only = False
     for attr in attrs:
@@ -753,6 +806,8 @@ def generate_class_constructor(cls, attrs=None):
         else:
             param = Parameter(coercion, default=value)
             args[attr] = param
+        if param.kind == Parameter.VAR_POSITIONAL:
+            kw_only = True
         if param.is_factory_key:
             factory_key = cls.__constructor_factory_key__ or ()
             if isinstance(factory_key, str):
