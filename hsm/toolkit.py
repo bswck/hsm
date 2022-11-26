@@ -74,18 +74,18 @@ class Dataclass(metaclass=_DataclassMeta):
         constructor = self.__constructor__
         if constructor:
             constructor.init(self, args, kwargs)
+            constructor.post_init(self)
         elif args or kwargs:
             raise TypeError(f'{type(self).__name__}() takes no arguments')
-        constructor.post_init(self)
 
     def __init_subclass__(cls, generate_constructor=True, factory_key=None):
         if factory_key:
             cls.__constructor_factory_key__ = factory_key
         if generate_constructor and cls.__constructor__ is None:
             constructor = generate_dataclass_constructor(cls)
-            factory_key_maker = cls.__constructor_factory_key__
-            if constructor and factory_key_maker:
-                constructor.factory_key_maker = factory_key_maker
+            factory_key = cls.__constructor_factory_key__
+            if constructor and factory_key:
+                constructor.factory_key = factory_key
 
     if __debug__:
         def __repr__(self):
@@ -369,7 +369,7 @@ class Parameter:
 
         self.kind = kind
 
-        self.__default_name = None
+        self._from_attribute = None
 
     ERROR = _Sentinel()
 
@@ -423,10 +423,15 @@ class Parameter:
                 attribute = name
             if isinstance(attribute, str):
                 setattr(instance, attribute, obj)
+            # elif (
+            #     self._from_attribute
+            #     and isinstance(getattr(instance, self._from_attribute, None), type(self))
+            # ):
+            #     delattr(instance, self._from_attribute)
         return obj
 
     def _inspect(self, name):
-        self.__default_name = name
+        self._from_attribute = name
         default = {}
         if self.kind not in (self.VAR_POSITIONAL, self.VAR_KEYWORD):
             default.update(default=self.default)
@@ -511,7 +516,7 @@ class Parameter:
 
     if __debug__:
         def __repr__(self):
-            return self.repr(name=self.__default_name or 'argument')
+            return self.repr(name=self._from_attribute or 'argument')
 
 
 Argument = functools.partial(Parameter, kind=Parameter.POSITIONAL_ONLY)
@@ -543,6 +548,9 @@ class Namespace(dict, _AttributialItemOps):
 
 
 class Constructor(collections.UserDict, _AttributialItemOps):
+    factory_key = None
+    INITIALIZED_FLAG = '__hsm_initialized__'
+
     def __init__(self, other=None, /, **kwargs):
         super().__init__(other)
         if not hasattr(self, 'instances'):
@@ -551,9 +559,13 @@ class Constructor(collections.UserDict, _AttributialItemOps):
             self.update(kwargs)
         self.initialized = weakref.WeakSet()
         self.signature = None
-        if not hasattr(self, 'factory_key_maker'):
-            self.factory_key_maker = None
         self.validate_parameters()
+
+    def mark_initialized(self, instance):
+        setattr(instance, self.INITIALIZED_FLAG, True)
+
+    def is_initialized(self, instance):
+        return getattr(instance, self.INITIALIZED_FLAG, False)
 
     def validate_parameters(self):
         parameters = list(itertools.starmap(
@@ -584,11 +596,11 @@ class Constructor(collections.UserDict, _AttributialItemOps):
     @classmethod
     def factory(cls, key_maker):
         constructor = cls()
-        constructor.factory_key_maker = key_maker
+        constructor.factory_key = key_maker
         return constructor
 
     def new(self, cls, args, kwargs):
-        key_maker = self.factory_key_maker
+        key_maker = self.factory_key
         key = MISSING
 
         if key_maker:
@@ -650,15 +662,17 @@ class Constructor(collections.UserDict, _AttributialItemOps):
     POST_INIT = '__post_init__'
 
     def init(self, instance, args, kwargs, force_reinit=False):
-        if not force_reinit and instance in self.initialized:
+        if not force_reinit and self.is_initialized(instance):
             return
         context = Namespace(missing=set())
         bound = self.signature.bind(*args, **kwargs)
         arguments = bound.arguments
-        for argument, value in {
-            **{arg_name: MISSING for arg_name in self.signature.parameters},
+
+        all_arguments = {
+            **{argument_name: MISSING for argument_name in self.signature.parameters},
             **arguments
-        }.items():
+        }
+        for argument, value in all_arguments.items():
             parameter = self.data[argument]
             parameter.set(argument, context, instance=instance, value=value)
         missing_args = context.missing
@@ -668,7 +682,7 @@ class Constructor(collections.UserDict, _AttributialItemOps):
                 f'{cls_name}.__init__() missing {len(missing_args)} '
                 f'required argument(s): {", ".join(missing_args)}'
             )
-        self.initialized.add(instance)
+        self.mark_initialized(instance)
 
     def post_init(self, instance):
         post_init = getattr(instance, self.POST_INIT, None)
@@ -747,12 +761,12 @@ def _hint_coercion_factory(hint):
         )
         coercion = RecursiveCoercion(result_coercion=result_coercion)
         while args:
-            arg = args.popleft()
-            if arg is ...:
+            tp = args.popleft()
+            if tp is ...:
                 # No length coercion, ellipsis allows indefinite amount of elements
                 result_coercion.pre_conversion = None
             else:
-                coercion.element_coercion = hint_coercion(arg)
+                coercion.element_coercion = hint_coercion(tp)
         return coercion
 
     # ...and non-generic ones
@@ -765,13 +779,17 @@ _hint_register = _dispatch.register
 
 def hint_coercion(tp):
     try:
-        weakref.ref(tp)
+        wr = weakref.ref(tp)
     except TypeError:
         return _hint_coercion_factory(tp)
-    return _dispatch.dispatch(tp)(tp)
+    return _dispatch.dispatch(wr())(wr())
 
 
-hint_coercion.register = (lambda cls, fn: _hint_register(cls)(fn))
+def coercion_factory(fn, tp=None):
+    if tp is None:
+        return functools.partial(coercion_factory, fn)
+    _hint_register(tp)(fn)
+    return tp
 
 
 def attribute_predicate(member, hints):

@@ -1,15 +1,18 @@
 import decimal
 
-from hsm.object import Object, objects
+from hsm.lib import Object, as_object
 from hsm.toolkit import Dataclass, Parameter
 
 
-@objects.register(int)
-@objects.register(float)
-@objects.register(complex)
-@objects.register(decimal.Decimal)
+@as_object.register(int)
+@as_object.register(float)
+@as_object.register(complex)
+@as_object.register(decimal.Decimal)
 class Const(Dataclass, Object):
-    value = Parameter()
+    value = Parameter(factory_key=True)
 
     def _get_value(self, context):
         return self.value
+
+    def __repr__(self):
+        return str(self.value)

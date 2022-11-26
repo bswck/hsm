@@ -1,6 +1,6 @@
 import math
 from hsm.toolkit import Dataclass, Parameter
-from hsm.object import Object
+from hsm.lib import Object
 
 
 class Logarithm(Dataclass, Object):
