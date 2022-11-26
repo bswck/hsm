@@ -1,8 +1,8 @@
 import functools
 import heapq
-import gettext
 
-from hsm.toolkit import Arguments, Dataclass, Parameter, Coercion
+from hsm.object import Object
+from hsm.toolkit import Arguments, Dataclass, Parameter, Coercion, Argument
 
 
 class OperationRegistry(dict):
@@ -43,18 +43,18 @@ class OperationImplementation(Dataclass):
         return fn
 
 
-class Operation(Dataclass):
-    unique_name: str = Parameter(Coercion(None, str.upper, gettext.gettext), factory_key=True)
-    symbol: str
+class OperationKind(Dataclass):
+    name: str = Parameter(Coercion(None, str.upper), factory_key=True)
+    repr: str
     _: Parameter.KW_ONLY
-    alternative_symbols: list[str] = Parameter(default_factory=list)
-    n_args: int = 2
+    symbols: list[str] = Parameter(default_factory=list)
+    nargs: int = 2
     commutative: bool = False
     comparison: bool = False
     swapped: str | None = None
     inverse: str | None = None
     chainable: bool = Parameter(
-        default_factory=lambda self: self.n_args > 1,
+        default_factory=lambda self: self.nargs > 1,
         instance_factory=True
     )
 
@@ -66,60 +66,109 @@ class Operation(Dataclass):
         return self(item)
 
 
-class OpName:
-    ADD = gettext.gettext('ADD')
-    SUB = gettext.gettext('SUBTRACT')
-    MUL = gettext.gettext('MULTIPLY')
-    TRUEDIV = gettext.gettext('DIVIDE')
-    FLOORDIV = gettext.gettext('FLOOR DIVIDE')
-    MOD = gettext.gettext('REMAINDER')
-    MATMUL = gettext.gettext('MATRIX MULTIPLY')
-    POW = gettext.gettext('POWER')
-    ROOT = gettext.gettext('ROOT')
+class Op:
+    ADD = 'add'
+    SUB = 'sub'
+    MUL = 'mul'
+    DIV = 'div'
+    FLOORDIV = 'floordiv'
+    MOD = 'mod'
+    MATMUL = 'matmul'
+    POW = 'pow'
+    ROOT = 'root'
 
-    EQ = gettext.gettext('EQUAL')
-    NE = gettext.gettext('NOT EQUAL')
-    GE = gettext.gettext('GREATER OR EQUAL')
-    GT = gettext.gettext('GREATER THAN')
-    LE = gettext.gettext('LESS OR EQUAL')
-    LT = gettext.gettext('LESS THAN')
-    AND = gettext.gettext('AND')
-    OR = gettext.gettext('OR')
-    XOR = gettext.gettext('EXCLUSIVE OR')
+    EQ = 'eq'
+    NE = 'ne'
+    GE = 'ge'
+    GT = 'gt'
+    LE = 'le'
+    LT = 'lt'
 
-    CONTAINS = gettext.gettext('CONTAINS')
-    IS_IN = gettext.gettext('IS IN')
-    GET = gettext.gettext('GET')
+    AND = 'and'
+    OR = 'or'
+    XOR = 'xor'
 
-    ABS = gettext.gettext('ABSOLUTE')
-    INVERT = gettext.gettext('INVERT')
+    CONTAINS = 'contains'
+    IN = 'in'
+    GET = 'get'
+
+    ABS = 'abs'
+    INVERT = 'invert'
 
 
-class Ops:
-    ADD = add = Operation(OpName.ADD, '+', commutative=True)
-    SUB = sub = Operation(OpName.SUB, '-')
-    MUL = mul = Operation(OpName.MUL, '*', commutative=True)
-    TRUEDIV = truediv = Operation(OpName.TRUEDIV, '/')
-    FLOORDIV = floordiv = Operation(OpName.FLOORDIV, '//')
-    MOD = mod = Operation(OpName.MOD, '%')
-    MATMUL = matmul = Operation(OpName.MATMUL, '@')
-    POW = pow = Operation(OpName.POW, '**')
-    ROOT = root = Operation(OpName.ROOT, '%(degree)r√%(self)r')
+class Operations:
+    ADD = add = OperationKind(Op.ADD, '{0!r} + {1!r}', commutative=True)
+    SUB = sub = OperationKind(Op.SUB, '{0!r} - {1!r}')
+    MUL = mul = OperationKind(Op.MUL, '{0!r} * {1!r}', commutative=True)
+    DIV = div = OperationKind(Op.DIV, '{0!r} / {1!r}')
+    FLOORDIV = floordiv = OperationKind(Op.FLOORDIV, '{0!r} // {1!r}')
+    MOD = mod = OperationKind(Op.MOD, '{0!r} % {1!r}')
+    MATMUL = matmul = OperationKind(Op.MATMUL, '{0!r} @ {1!r}')
+    POW = pow = OperationKind(Op.POW, '{0!r} ** {1!r}')
+    ROOT = root = OperationKind(Op.ROOT, '%(degree)r√{0!r}')
 
-    EQ = eq = Operation(OpName.EQ, '==', commutative=True, comparison=True)
-    NE = ne = Operation(OpName.NE, '!=', commutative=True, comparison=True)
-    GE = ge = Operation(OpName.GE, '>=', swapped='LE', comparison=True)
-    GT = gt = Operation(OpName.GT, '>', swapped='LT', comparison=True)
-    LE = le = Operation(OpName.LE, '<=', swapped='GE', comparison=True)
-    LT = lt = Operation(OpName.LT, '<', swapped='GT', comparison=True)
+    EQ = eq = OperationKind(
+        Op.EQ, '{0!r} == {1!r}', commutative=True, comparison=True
+    )
+    NE = ne = OperationKind(
+        Op.NE, '{0!r} != {1!r}', commutative=True, comparison=True
+    )
+    GE = ge = OperationKind(
+        Op.GE, '{0!r} >= {1!r}', swapped='LE', comparison=True
+    )
+    GT = gt = OperationKind(
+        Op.GT, '{0!r} > {1!r}', swapped='LT', comparison=True
+    )
+    LE = le = OperationKind(
+        Op.LE, '{0!r} <= {1!r}', swapped='GE', comparison=True
+    )
+    LT = lt = OperationKind(
+        Op.LT, '{0!r} < {1!r}', swapped='GT', comparison=True
+    )
 
-    AND = and_ = Operation(OpName.AND, '&', commutative=True)
-    OR = or_ = Operation(OpName.OR, '|', commutative=True)
-    XOR = xor_ = Operation(OpName.XOR, '^', commutative=True)
+    AND = and_ = OperationKind(Op.AND, '{0!r} & {1!r}', commutative=True)
+    OR = or_ = OperationKind(Op.OR, '{0!r} | {1!r}', commutative=True)
+    XOR = xor_ = OperationKind(Op.XOR, '{0!r} ^ {1!r}', commutative=True)
 
-    CONTAINS = contains = Operation(OpName.CONTAINS, '∋', swapped='IS_IN')
-    IS_IN = is_in = Operation(OpName.IS_IN, '∈', swapped='CONTAINS')
-    GET = get = Operation(OpName.GET, '%(parent)r[%(self)r]')  # commutative only in the C language
+    CONTAINS = contains = OperationKind(
+        Op.CONTAINS, '{1!r} ∈ {0!r}', swapped='IS_IN'
+    )
+    IN = in_ = OperationKind(Op.IN, '{0!r} ∈ {1!r}', swapped='CONTAINS')
+    GET = get = OperationKind(Op.GET, '{1!r}[{0!r}]')
 
-    ABS = abs = Operation(OpName.ABS, '|%(self)r|', n_args=1)
-    INVERT = invert = Operation(OpName.INVERT, '~%(self)r', n_args=1)
+    ABS = abs = OperationKind(Op.ABS, '|{0!r}|', nargs=1)
+    INVERT = invert = OperationKind(Op.INVERT, '~{0!r}', nargs=1)
+
+
+class Operation(Dataclass):
+    """
+    Operation on objects.
+
+    Operation('lt', x, y, 5) -> x < y < 5
+    Operation('abs', 5) -> |5|
+    Operation('abs', x) -> |x|
+    Operation('abs', x, 5) -> ValueError: ...
+    """
+
+    kind: OperationKind = Argument()
+    objects: list[Object] = Arguments()
+
+    def __post_init__(self):
+        if self.kind.nargs != -1:
+            nargs = len(self)
+            if nargs < self.kind.nargs:
+                raise ValueError(
+                    f'incorrect number of arguments for the {self.kind.name} operation '
+                    f'(expected {self.kind.nargs}, got {nargs})'
+                )
+            if nargs > self.kind.nargs and not self.kind.chainable:
+                raise ValueError(f'{self.kind.name} operation is not chainable')
+
+    def __repr__(self):
+        return self.kind.repr.format(*self.objects)
+
+    def __len__(self):
+        return len(self.objects)
+
+
+print(Operation('lt', 5, 3))

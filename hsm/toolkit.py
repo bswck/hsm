@@ -45,7 +45,7 @@ class CoercionFailureError(_HSMTypingError):
 
 
 if __debug__:
-    class _AutoClassMeta(type):
+    class _DataclassMeta(type):
         __constructor__: 'Constructor'
 
         def __repr__(self):
@@ -55,10 +55,10 @@ if __debug__:
             return type.__repr__(self)
 
 else:
-    _TypingMeta = type  # noqa
+    _DataclassMeta = type  # noqa
 
 
-class Dataclass(metaclass=_AutoClassMeta):
+class Dataclass(metaclass=_DataclassMeta):
     __constructor__ = None
     __constructor_scan_annotations__ = True
     __constructor_kwargs__ = {}
@@ -74,14 +74,15 @@ class Dataclass(metaclass=_AutoClassMeta):
         constructor = self.__constructor__
         if constructor:
             constructor.init(self, args, kwargs)
-        else:
+        elif args or kwargs:
             raise TypeError(f'{type(self).__name__}() takes no arguments')
+        constructor.post_init(self)
 
     def __init_subclass__(cls, generate_constructor=True, factory_key=None):
         if factory_key:
             cls.__constructor_factory_key__ = factory_key
         if generate_constructor and cls.__constructor__ is None:
-            constructor = generate_class_constructor(cls)
+            constructor = generate_dataclass_constructor(cls)
             factory_key_maker = cls.__constructor_factory_key__
             if constructor and factory_key_maker:
                 constructor.factory_key_maker = factory_key_maker
@@ -119,20 +120,16 @@ class Coercion(CoercionBase):
     def __init__(
         self,
         data_type=None,
-        before_cast=None,
-        after_cast=None,
+        pre_conversion=None,
+        post_conversion=None,
         cast=MISSING,
     ):
         if not isinstance(data_type, type):
-            before_cast = data_type
+            pre_conversion = data_type
             data_type = None
-        if data_type:
-            if isinstance(data_type, str):
-                before_cast = coercion_from_hint(data_type).coerce
-                data_type = None
         self.data_type = data_type
-        self.before_cast = before_cast
-        self.after_cast = after_cast
+        self.pre_conversion = pre_conversion
+        self.post_conversion = post_conversion
         if cast is MISSING:
             cast = self.data_type
         self.cast = cast
@@ -158,8 +155,8 @@ class Coercion(CoercionBase):
             if cached:
                 if (
                     self.data_type is cached.data_type
-                    and self.before_cast is cached.before_cast
-                    and self.after_cast is cached.after_cast
+                    and self.pre_conversion is cached.pre_conversion
+                    and self.post_conversion is cached.post_conversion
                     and cached.cast is None
                 ):
                     return cached
@@ -168,24 +165,24 @@ class Coercion(CoercionBase):
             else:
                 self.__no_cast = type(self)(
                     data_type=self.data_type,
-                    before_cast=self.before_cast,
+                    pre_conversion=self.pre_conversion,
                     cast=None,
-                    after_cast=self.after_cast
+                    post_conversion=self.post_conversion
                 )
             return self.__no_cast
         return type(self)(
             data_type=self.data_type,
-            before_cast=self.before_cast,
+            pre_conversion=self.pre_conversion,
             cast=cast,
-            after_cast=self.after_cast
+            post_conversion=self.post_conversion
         )
 
     def coerce(self, value, name=None):
         """Try to coerce a valid value for construction."""
 
         data_type = self.data_type
-        before_cast = self.before_cast
-        after_cast = self.after_cast
+        pre_convert = self.pre_conversion
+        post_convert = self.post_conversion
 
         # Expected data type is provided, examine the value with reference to it.
         if data_type is not None:
@@ -195,7 +192,7 @@ class Coercion(CoercionBase):
             else:
                 # Need to cast the value to the proper data type.
                 # Validate before trying, then cast, and let the errors propagate if any.
-                value = self._coerce(before_cast, value, name=name)
+                value = self._coerce(pre_convert, value, name=name)
                 if callable(self.cast):
                     try:
                         obj = self.cast(value)
@@ -212,7 +209,7 @@ class Coercion(CoercionBase):
             obj = value
 
         # Validate the object of an acceptable data type.
-        obj = self._coerce(after_cast, obj, name=name)
+        obj = self._coerce(post_convert, obj, name=name)
         return obj
 
     if __debug__:
@@ -221,12 +218,12 @@ class Coercion(CoercionBase):
             repr_chunks = []
             if self.data_type:
                 repr_chunks.append(f'type={self.data_type.__name__}')
-            if self.before_cast and self.before_cast is not self.data_type:
-                repr_chunks.append(f'before_cast={self.before_cast}')
+            if self.pre_conversion and self.pre_conversion is not self.data_type:
+                repr_chunks.append(f'before_cast={self.pre_conversion}')
             if self.cast is not self.data_type:
                 repr_chunks.append(f'cast={self.cast}')
-            if self.after_cast:
-                repr_chunks.append(f'after_cast={self.after_cast}')
+            if self.post_conversion:
+                repr_chunks.append(f'after_cast={self.post_conversion}')
             if not repr_chunks:
                 return repr_string % ('Null', '')
             return repr_string % ('', ' ' + ' '.join(repr_chunks))
@@ -517,8 +514,10 @@ class Parameter:
             return self.repr(name=self.__default_name or 'argument')
 
 
-Args = Arguments = functools.partial(Parameter, kind=Parameter.VAR_POSITIONAL)
-KWArgs = KeywordArguments = functools.partial(Parameter, kind=Parameter.VAR_KEYWORD)
+Argument = functools.partial(Parameter, kind=Parameter.POSITIONAL_ONLY)
+Arguments = functools.partial(Parameter, kind=Parameter.VAR_POSITIONAL)
+KeywordArgument = functools.partial(Parameter, kind=Parameter.KEYWORD_ONLY)
+KeywordArguments = functools.partial(Parameter, kind=Parameter.VAR_KEYWORD)
 
 
 class _AttributialItemOps:
@@ -650,11 +649,12 @@ class Constructor(collections.UserDict, _AttributialItemOps):
 
     POST_INIT = '__post_init__'
 
-    def init(self, instance, args, kwargs, force=False):
-        if not force and instance in self.initialized:
+    def init(self, instance, args, kwargs, force_reinit=False):
+        if not force_reinit and instance in self.initialized:
             return
         context = Namespace(missing=set())
-        arguments = self.signature.bind(*args, **kwargs).arguments
+        bound = self.signature.bind(*args, **kwargs)
+        arguments = bound.arguments
         for argument, value in {
             **{arg_name: MISSING for arg_name in self.signature.parameters},
             **arguments
@@ -668,10 +668,12 @@ class Constructor(collections.UserDict, _AttributialItemOps):
                 f'{cls_name}.__init__() missing {len(missing_args)} '
                 f'required argument(s): {", ".join(missing_args)}'
             )
+        self.initialized.add(instance)
+
+    def post_init(self, instance):
         post_init = getattr(instance, self.POST_INIT, None)
         if callable(post_init):
             post_init()
-        self.initialized.add(instance)
 
     @property
     def parameters(self):
@@ -728,41 +730,48 @@ def _hint_coercion_factory(hint):
             data_type = None
         elif issubclass(origin, types.UnionType):
             return SelectCoercion(
-                *map(coercion_from_hint, args)
+                *map(hint_coercion, args)
             )
         elif origin in (type, typing.Type):
-            def coerce_func(typ):
-                if not issubclass(typ, tuple(args)):
+            def coerce_func(tp):
+                if not issubclass(tp, tuple(args)):
                     raise CoercionFailureError(f'expected {hint}')
-                return typ
+                return tp
             return Coercion(
                 data_type=type,
-                after_cast=coerce_func
+                post_conversion=coerce_func
             )
         result_coercion = Coercion(
             data_type=data_type,
-            before_cast=coerce_func
+            pre_conversion=coerce_func
         )
         coercion = RecursiveCoercion(result_coercion=result_coercion)
         while args:
             arg = args.popleft()
             if arg is ...:
                 # No length coercion, ellipsis allows indefinite amount of elements
-                result_coercion.before_cast = None
+                result_coercion.pre_conversion = None
             else:
-                coercion.element_coercion = coercion_from_hint(arg)
+                coercion.element_coercion = hint_coercion(arg)
         return coercion
 
     # ...and non-generic ones
     return Coercion(hint)
 
 
-hint_coercions = functools.singledispatch(_hint_coercion_factory)
-hint_coercions.register = (lambda cls, fn: hint_coercions.register(cls)(fn))
+_dispatch = functools.singledispatch(_hint_coercion_factory)
+_hint_register = _dispatch.register
 
 
-def coercion_from_hint(hint):
-    return hint_coercions(hint)
+def hint_coercion(tp):
+    try:
+        weakref.ref(tp)
+    except TypeError:
+        return _hint_coercion_factory(tp)
+    return _dispatch.dispatch(tp)(tp)
+
+
+hint_coercion.register = (lambda cls, fn: _hint_register(cls)(fn))
 
 
 def attribute_predicate(member, hints):
@@ -770,7 +779,7 @@ def attribute_predicate(member, hints):
     return name in hints or isinstance(value, Parameter)
 
 
-def generate_class_constructor(
+def generate_dataclass_constructor(
     cls,
     attributes=None,
 ):
@@ -792,7 +801,7 @@ def generate_class_constructor(
         coercion = None
         hint = hints.get(attribute)
         if hint:
-            coercion = coercion_from_hint(hint)
+            coercion = hint_coercion(hint)
         if hint is Parameter.KW_ONLY:
             if kw_only:
                 raise _HSMTypingError('duplicated * in constructor signature')
@@ -813,8 +822,6 @@ def generate_class_constructor(
         else:
             param = Parameter(coercion, default=value)
             args[attribute] = param
-        if param.kind == Parameter.VAR_POSITIONAL:
-            kw_only = True
         if param.is_factory_key:
             factory_key = cls.__constructor_factory_key__ or ()
             if isinstance(factory_key, str):
@@ -824,6 +831,8 @@ def generate_class_constructor(
             cls.__constructor_factory_key__ = factory_key
         if kw_only:
             param.kind = Parameter.KEYWORD_ONLY
+        if param.kind == Parameter.VAR_POSITIONAL:
+            kw_only = True
     kwargs = cls.__constructor_kwargs__
     constructor = Constructor(args, **kwargs)
     cls.__constructor__ = constructor

@@ -1,14 +1,14 @@
 import functools
-from hsm.toolkit import Namespace, Coercion, hint_coercions
+from hsm.toolkit import Namespace, Coercion, hint_coercion
 
 
 @functools.singledispatch
-def recognition(value):
+def objects(value):
     raise ValueError(f'value {value!r} could not be recognised as a mathematical object')
 
 
 class Object:
-    from_value = staticmethod(recognition)
+    from_value = staticmethod(objects)
     const = False
 
     def _get_value(self, context):
@@ -18,10 +18,10 @@ class Object:
         return self._get_value(context or Context())
 
 
-hint_coercions.register(Object, Coercion(Object, cast=recognition))
+hint_coercion.register(Object, lambda tp: Coercion(tp, cast=objects))
 
 
-@recognition.register(Object)
+@objects.register(Object)
 def identity(obj):
     return obj
 
