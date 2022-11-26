@@ -425,7 +425,7 @@ class Parameter:
                 setattr(instance, attribute, obj)
         return obj
 
-    def to_inspect_obj(self, name):
+    def _inspect(self, name):
         self.__default_name = name
         default = {}
         if self.kind not in (self.VAR_POSITIONAL, self.VAR_KEYWORD):
@@ -557,7 +557,7 @@ class Constructor(collections.UserDict, _AttributialItemOps):
 
     def validate_parameters(self):
         parameters = list(itertools.starmap(
-            lambda name, param: param.to_inspect_obj(name),
+            lambda name, param: param._inspect(name),
             self.data.items()
         ))
         self.signature = inspect.Signature(parameters=parameters)
