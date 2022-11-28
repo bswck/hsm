@@ -1,6 +1,10 @@
-from hsm.lib import Operation
+from hsm.core import Operation
+from hsm.const import *
+from hsm.core import x, y, z
 
 
-print(Operation('lt', 5, 6, 7))
-print(Operation('abs', 1))
-print(Operation('sub', 2, 3, 78))
+subtraction = Operation('sub', 2, 0, 3, 6)
+print(subtraction)
+addition = subtraction.reassemble('add')
+print(addition)
+print(addition.reassemble('commutate'))

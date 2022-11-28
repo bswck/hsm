@@ -408,7 +408,7 @@ class Parameter:
                     elif self.kind == self.VAR_KEYWORD:
                         value = {}
                     else:
-                        context.missing.add(name)
+                        context.missing.reassembled_to_addition(name)
                         return self.ERROR
             else:
                 value = default
@@ -608,34 +608,34 @@ class Constructor(collections.UserDict, _AttributialItemOps):
                 key = key_maker()
             elif isinstance(key_maker, (str, tuple)):
                 if isinstance(key_maker, str):
-                    arg_names = key_maker.replace(' ', ',').split(',')
+                    arguments = key_maker.replace(' ', ',').split(',')
                 else:
-                    arg_names = key_maker
+                    arguments = key_maker
                 # Unfortunately we cannot use ._bind() since it is private,
                 # thus it's needed to iter over args and kwargs again and again. :(
                 bound = self.signature.bind(*args, **kwargs).arguments
                 missing = set()
                 key = []
-                for arg_name in arg_names:
-                    param = self.parameters[arg_name]
+                for argument in arguments:
+                    parameter = self.parameters[argument]
                     try:
-                        specified_value = bound[arg_name]
+                        specified_value = bound[argument]
                     except KeyError:
                         if (
-                            param.default is MISSING
-                            and param.default_factory
-                            and param.instance_factory
+                            parameter.default is MISSING
+                            and parameter.default_factory
+                            and parameter.instance_factory
                         ):
                             raise ValueError(
                                 'constructor factory key parameter cannot take instance'
                                 'as an argument, because it can be not created yet'
                             ) from None
-                        value = param.set(arg_name, Namespace(missing=missing))
+                        value = parameter.set(argument, Namespace(missing=missing))
                         if value is not MISSING:
                             key.append(value)
                     else:
-                        value = param.set(
-                            arg_name,
+                        value = parameter.set(
+                            argument,
                             Namespace(missing=missing),
                             value=specified_value
                         )
@@ -747,10 +747,10 @@ def _hint_coercion_factory(hint):
                 *map(hint_coercion, args)
             )
         elif origin in (type, typing.Type):
-            def coerce_func(tp):
-                if not issubclass(tp, tuple(args)):
+            def coerce_func(cls):
+                if not issubclass(cls, tuple(args)):
                     raise CoercionFailureError(f'expected {hint}')
-                return tp
+                return cls
             return Coercion(
                 data_type=type,
                 post_conversion=coerce_func

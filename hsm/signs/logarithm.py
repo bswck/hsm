@@ -1,6 +1,6 @@
 import math
-from hsm.toolkit import Dataclass, Parameter
-from hsm.lib import Object
+from hsm.toolkit import Dataclass
+from hsm.core import Object
 
 
 class Logarithm(Dataclass, Object):
@@ -10,4 +10,3 @@ class Logarithm(Dataclass, Object):
 
     def _get_value(self, context):
         return self.r * math.log(self.x, base=self.a)
-
