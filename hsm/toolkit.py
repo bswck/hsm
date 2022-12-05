@@ -9,40 +9,8 @@ import types
 import typing
 import weakref
 
-
-class _HSMTypingError(Exception):
-    pass
-
-
-class CoercionFailureError(_HSMTypingError):
-    MSG_DEFAULT = 'no additional information'
-
-    def __init__(self, obj=None, param_name=None):
-        if isinstance(obj, str):
-            self.msg = obj
-        elif isinstance(obj, bool):
-            self.msg = self.MSG_DEFAULT
-        self._param_name = None
-        self.args = self.msg,
-        self.param_name = param_name
-
-    @property
-    def param_name(self):
-        return self._param_name
-
-    @param_name.setter
-    def param_name(self, name):
-        self._param_name = name
-        self.args = ' '.join((self.msg.strip(), *([f'(parameter {name!r})'] if name else []))),
-
-    def __bool__(self):
-        return False
-
-    def __new__(cls, coercion_failure=None, param_name=None):
-        if isinstance(coercion_failure, cls):
-            return coercion_failure
-        return _HSMTypingError.__new__(cls)
-
+from hsm.errors import CoercionError
+from hsm.errors import ConstructorError
 
 if __debug__:
     class _DataclassMeta(type):
@@ -81,7 +49,7 @@ class Dataclass(metaclass=_DataclassMeta):
     def __init_subclass__(cls, generate_constructor=True, factory_key=None):
         if factory_key:
             cls.__constructor_factory_key__ = factory_key
-        if generate_constructor and cls.__constructor__ is None:
+        if generate_constructor:
             constructor = generate_dataclass_constructor(cls)
             factory_key = cls.__constructor_factory_key__
             if constructor and factory_key:
@@ -143,8 +111,8 @@ class Coercion(CoercionBase):
         if callable(callee):
             try:
                 valid = callee(value)
-            except CoercionFailureError as failure:
-                failure.param_name = name
+            except CoercionError as failure:
+                failure.param = name
                 raise failure from None
             return valid
         return value
@@ -197,10 +165,10 @@ class Coercion(CoercionBase):
                     try:
                         obj = self.cast(value)
                     except Exception as exc:
-                        raise CoercionFailureError(
+                        raise CoercionError(
                             f'could not cast {type(value).__name__} {value!r} '
                             f'to {data_type.__name__}',
-                            param_name=name
+                            param=name
                         ) from exc
                 else:
                     obj = value
@@ -325,7 +293,7 @@ class SelectCoercion(CoercionBase):
                 pass
             if valid is not MISSING:
                 return valid
-        raise CoercionFailureError(f'value {value} any of coercions {self}')
+        raise CoercionError(f'value {value} any of coercions {self}')
 
     if __debug__:
         def __repr__(self):
@@ -648,14 +616,14 @@ class Constructor(collections.UserDict, _AttributialItemOps):
                 key = tuple(key)
 
             if key is MISSING:
-                raise ValueError('invalid key maker for factory constructor')
+                raise ConstructorError('invalid key maker for factory constructor')
 
             try:
                 return self.instances[key]
             except KeyError:
-                inst_ref = object.__new__(cls)
-                self.instances[key] = inst_ref
-                return inst_ref
+                temporary_reference = object.__new__(cls)
+                self.instances[key] = temporary_reference
+                return temporary_reference
 
         return object.__new__(cls)
 
@@ -664,6 +632,7 @@ class Constructor(collections.UserDict, _AttributialItemOps):
     def init(self, instance, args, kwargs, force_reinit=False):
         if not force_reinit and self.is_initialized(instance):
             return
+
         context = Namespace(missing=set())
         bound = self.signature.bind(*args, **kwargs)
         arguments = bound.arguments
@@ -672,16 +641,19 @@ class Constructor(collections.UserDict, _AttributialItemOps):
             **{argument_name: MISSING for argument_name in self.signature.parameters},
             **arguments
         }
+
         for argument, value in all_arguments.items():
             parameter = self.data[argument]
             parameter.set(argument, context, instance=instance, value=value)
-        missing_args = context.missing
-        if missing_args:
+
+        missing = context.missing
+        if missing:
             cls_name = type(instance).__name__
             raise TypeError(
-                f'{cls_name}.__init__() missing {len(missing_args)} '
-                f'required argument(s): {", ".join(missing_args)}'
+                f'{cls_name}.__init__() missing {len(missing)} '
+                f'required argument(s): {", ".join(missing)}'
             )
+
         self.mark_initialized(instance)
 
     def post_init(self, instance):
@@ -734,7 +706,7 @@ def _hint_coercion_factory(hint):
             def coerce_func(obj):
                 passed = len(obj)
                 if passed != expected:
-                    raise CoercionFailureError(f'expected {expected} argument(s), got {passed}')
+                    raise CoercionError(f'expected {expected} argument(s), got {passed}')
                 return obj
 
         else:
@@ -743,13 +715,11 @@ def _hint_coercion_factory(hint):
         if origin in (typing.Annotated, typing.Generic):
             data_type = None
         elif issubclass(origin, types.UnionType):
-            return SelectCoercion(
-                *map(hint_coercion, args)
-            )
+            return SelectCoercion(*map(hint_coercion, args))
         elif origin in (type, typing.Type):
             def coerce_func(cls):
                 if not issubclass(cls, tuple(args)):
-                    raise CoercionFailureError(f'expected {hint}')
+                    raise CoercionError(f'expected {hint}')
                 return cls
             return Coercion(
                 data_type=type,
@@ -779,10 +749,10 @@ _hint_register = _dispatch.register
 
 def hint_coercion(tp):
     try:
-        wr = weakref.ref(tp)
+        weakref.ref(tp)
     except TypeError:
         return _hint_coercion_factory(tp)
-    return _dispatch.dispatch(wr())(wr())
+    return _dispatch.dispatch(tp)(tp)
 
 
 def coercion_factory(fn, tp=None):
@@ -822,7 +792,7 @@ def generate_dataclass_constructor(
             coercion = hint_coercion(hint)
         if hint is Parameter.KW_ONLY:
             if kw_only:
-                raise _HSMTypingError('duplicated * in constructor signature')
+                raise ConstructorError('duplicated * in constructor signature')
             kw_only = True
             continue
         value = getattr(cls, attribute, MISSING)
@@ -833,7 +803,7 @@ def generate_dataclass_constructor(
                 param.add_coercion(coercion, location='fb', _is_hint_coercion=hint is not None)
             if kw_only:
                 if value.kind < Parameter.POSITIONAL_OR_KEYWORD:
-                    raise _HSMTypingError(
+                    raise ConstructorError(
                         'illegal parameter kind to be followed by * in constructor '
                         'signature'
                     )
@@ -853,5 +823,8 @@ def generate_dataclass_constructor(
             kw_only = True
     kwargs = cls.__constructor_kwargs__
     constructor = Constructor(args, **kwargs)
-    cls.__constructor__ = constructor
+    if cls.__constructor__:
+        cls.__constructor__ = Constructor({**cls.__constructor__, **constructor})
+    else:
+        cls.__constructor__ = constructor
     return constructor
