@@ -215,7 +215,7 @@ def identity(obj):
 class Function(Dataclass):
     objects: tuple[AtomicNode, ...] = Arguments(factory_key=True)
 
-    chained = False
+    chained_arguments = False
     _const = False
 
     @property

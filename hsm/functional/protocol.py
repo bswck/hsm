@@ -42,7 +42,7 @@ class Protocol:
     def repr(self, op, objects):
         repr_fmt = self.metadata.repr
         repr_string = repr_fmt.format(*objects)
-        if op.chained:
+        if op.chained_arguments:
             repr_string = functools.reduce(
                 repr_fmt.format,
                 objects[op.nargs::],
@@ -64,7 +64,7 @@ class Protocol:
                         f'{self.name} operation is not chainable '
                         '(too many arguments passed)'
                     )
-                op.chained = True
+                op.chained_arguments = True
 
     def __init_subclass__(cls, **kwargs):
         cls._all_protos[cls.name] = cls

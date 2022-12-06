@@ -1,15 +1,6 @@
 from hsm.functional.protocol import Protocol, Metadata
 
 
-class Operations:
-    MATMUL = matmul = Metadata('{0} @ {1}')
-    CONTAINS = contains = Metadata('{1} ∈ {0}')
-    GET = get = Metadata('{1}[{0}]')
-
-    ABS = abs = Metadata('|{0}|', nargs=1)
-    INVERT = invert = Metadata('~{0}', nargs=1)
-
-
 class Addition(Protocol):
     name = 'add'
     priority = 0
@@ -41,6 +32,18 @@ class Power(Protocol):
 class Root(Power):
     name = 'root'
     metadata = Metadata('{0}^(1/{1})', chainable=False)
+
+
+class AbsoluteValue(Protocol):
+    name = 'abs'
+    metadata = Metadata('|{0}|', nargs=1)
+    priority = Power.priority + 1
+
+
+class Negate(Protocol):
+    name = 'neg'
+    metadata = Metadata('~{0}', nargs=1)
+    priority = AbsoluteValue.priority + 1
 
 
 class FormulaProtocol(Protocol):
@@ -92,4 +95,10 @@ class Or(FormulaProtocol):
 
 
 class XOr(FormulaProtocol):
+    name = 'xor'
     metadata = Metadata('{0} xor {1}', commutative=True)
+
+
+class Contains(FormulaProtocol):
+    name = 'contains'
+    metadata = Metadata('{1} ∈ {0}')
