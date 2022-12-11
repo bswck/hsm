@@ -55,7 +55,7 @@ class AbsoluteValue(Operation):
     name = 'abs'
     min_args = max_args = 1
     priority = Exponentiation.priority + 1
-    repr_engine = PythonReprEngine('|{0}|', 'composition')
+    repr_engine = PythonReprEngine('|{0}|', 'composition', parenthesize_by_priority=False)
 
 
 class Relation(Arithmetic):
