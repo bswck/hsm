@@ -439,25 +439,19 @@ def op(
             if o2.is_O:
                 return O(S, o1, *o2.operands)
             if o2.is_CO:
-                return CO(S, o1, *o2.complexity_sorted_operands)
+                return CO(S, o1, *o2.operands)
         elif o1.is_O:
             if o2.is_A:
                 return O(S, *o1.operands, o2)
             if o2.is_O:
                 return O(S, *o1.operands, *o2.operands)
             if o2.is_CO:
-                return CO(S, *o1.operands, *o2.complexity_sorted_operands)
+                return CO(S, *o1.operands, *o2.operands)
         elif o1.is_CO:
             if o2.is_A:
-                return CO(S, *o1.atomic_nodes, o2, *o1.atomic_operations, *o1.compound_operations)
-            if o2.is_O:
-                return CO(S, *o1.atomic_nodes, *o2.operands, *o1.atomic_operations)
-            if o2.is_CO:
-                return CO(
-                    S, *o1.atomic_nodes, *o2.atomic_nodes,
-                    *o1.atomic_operations, *o2.atomic_operations,
-                    *o1.compound_operations, *o2.compound_operations
-                )
+                return CO(S, *o1.operands, o2)
+            if o2.is_O or o2.is_CO:
+                return CO(S, *o1.operands, *o2.operands)
     return CO(S, o1, o2)
 
 
