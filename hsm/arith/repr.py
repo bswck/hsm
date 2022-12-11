@@ -49,14 +49,20 @@ class PythonReprEngine(ReprEngine):
         self, arith, operand,
         operation, tree=False, parentheses=False,
         associativity_parenthesization=True,
-        priority_parenthesization=True, **kwds
+        priority_parenthesization=True, context=None, **kwds
     ):
         return operand.repr(
             parentheses=not operand.is_A and (
                 parentheses
                 or tree
-                or (priority_parenthesization and arith.priority > operand.priority)
-                or (arith.associative is operand.arith.associative)
+                or (
+                    (priority_parenthesization and arith.priority >= operand.priority)
+                    and (
+                        associativity_parenthesization
+                        and context
+                        and not arith.associative and not operand.arith.associative
+                    )
+                )
             )
         )
 
@@ -88,15 +94,22 @@ class CompleteReprEngine(ReprEngine, new_dispatch=False):
 @PythonReprEngine.repr_factory(name='composition')
 def composition(engine, arith, operation, operands, **kwds):
     fmt = engine.repr_fmt
+    context = []
     repr_string = fmt.format(*(
-        engine.repr_operand(arith, operand, operation, **kwds)
+        (
+            engine.repr_operand(arith, operand, operation, context=context, **kwds),
+            context.append(operand)
+        )[0]
         for operand in operands[:operation.arith.min_args]
     ))
     if operation.chained:
         repr_string = functools.reduce(
             fmt.format,
             (
-                engine.repr_operand(arith, operand, operation, **kwds)
+                (
+                    engine.repr_operand(arith, operand, operation, context=context, **kwds),
+                    context.append(operand)
+                )[0]
                 for operand in operands[operation.arith.min_args:]
             ),
             repr_string
@@ -106,17 +119,25 @@ def composition(engine, arith, operation, operands, **kwds):
 
 @PythonReprEngine.repr_factory(name='join')
 def join(engine, arith, operation, operands, **kwds):
+    context = []
     return engine.repr_fmt.join(
-        engine.repr_operand(arith, operand, operation, **kwds)
+        (
+            engine.repr_operand(arith, operand, operation, context=context, **kwds),
+            context.append(operand)
+        )[0]
         for operand in operands
     )
 
 
 @PythonReprEngine.repr_factory(name='list')
 def list_(engine, arith, operation, operands, **kwds):
+    context = []
     return engine.repr_fmt.format(
         engine.listing_denominator.join(
-            engine.repr_operand(arith, operand, operation, **kwds)
+            (
+                engine.repr_operand(arith, operand, operation, context=context, **kwds),
+                context.append(operand)
+            )[0]
             for operand in operands
         )
     )
