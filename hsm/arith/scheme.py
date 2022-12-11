@@ -106,7 +106,10 @@ class OperationScheme(Dataclass):
                 swapped_cls.swapped_cls = cls
             cls._swapped_cls = swapped_cls
         if cls.chainable is None:
-            cls.chainable = cls.nargs > 1
+            if cls.nargs is None:
+                cls.chainable = False
+            else:
+                cls.chainable = cls.nargs > 1
 
     def __repr__(self):
         return self.name

@@ -58,6 +58,9 @@ class BooleanOperationScheme(OperationScheme):
     # That would be invalid unless we treat booleans like numbers, but that's so CS-specific!
     associative = None
 
+    def repr(self, operation, objects, parentheses=False):
+        return self.fmt.format(*(obj.repr(parentheses=False) for obj in objects))
+
 
 class RequiresBooleanOperands:
     name: str
