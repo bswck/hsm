@@ -16,7 +16,7 @@ class OperationScheme(Dataclass):
 
     name = Argument()
     fmt: ClassVar[str] = '{0}?'
-    nargs: ClassVar[int] = 2
+    nargs: ClassVar[int | None] = None
     priority: ClassVar[int] = -1
     associative: ClassVar[bool | None] = False
     commutative: ClassVar[bool] = False
@@ -36,17 +36,23 @@ class OperationScheme(Dataclass):
 
     def validate_operands(self, operation, operands, allowed_types):
         nargs = len(operands)
-        if self.nargs != -1:
-            if nargs < self.nargs:
+        if self.nargs is not None:
+            if self.nargs < 0:
+                min_args = abs(self.nargs)
+                max_args = float('inf')
+            else:
+                min_args = max_args = self.nargs
+
+            if nargs < min_args:
                 raise ValueError(
                     f'too few arguments for {self.name} '
-                    f'(expected {self.nargs}, got {nargs})'
+                    f'(expected at least {min_args}, got {nargs})'
                 )
-            if nargs > self.nargs:
+            if nargs > max_args:
                 if not self.chainable:
                     raise ValueError(
                         f'{self.name} operation is not chainable '
-                        '(too many arguments passed)'
+                        f'(too many arguments passed, maximally {max_args} accepted)'
                     )
                 operation.chained = True
         for operand in operands:
