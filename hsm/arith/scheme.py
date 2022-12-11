@@ -103,4 +103,4 @@ class OperationScheme(Dataclass):
             cls.chainable = cls.nargs > 1
 
     def __repr__(self):
-        return type(self).__name__.lower()
+        return self.name
