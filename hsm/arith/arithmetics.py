@@ -43,7 +43,7 @@ class Exponentiation(Operation):
     name = 'pow'
     chainable = False
     priority = Multiplication.priority + 1
-    repr_engine = infix_operator('^')
+    repr_engine = infix_operator('^', add_surrounding_spaces=False)
 
 
 class Root(Exponentiation):

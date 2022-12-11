@@ -56,19 +56,20 @@ class PythonReprEngine(ReprEngine):
                 parentheses
                 or tree
                 or (
-                    (priority_parenthesization and arith.priority >= operand.priority)
-                    and (
-                        associativity_parenthesization
-                        and context
-                        and not arith.associative and not operand.arith.associative
-                    )
+                    priority_parenthesization
+                    and arith.priority >= operand.priority
+                    and associativity_parenthesization
+                    and (context or (arith is not operand.arith))
+                    and not arith.associative
                 )
             )
         )
 
 
-def infix_operator(symbol, **kwds):
-    infix = ' ' + symbol + ' '
+def infix_operator(symbol, add_surrounding_spaces=True, **kwds):
+    infix = symbol
+    if add_surrounding_spaces:
+        infix = ' ' + infix + ' '
     return PythonReprEngine(infix, 'join', **kwds)
 
 

@@ -184,8 +184,11 @@ class Operand:
 
 class Symbol(Dataclass):
     name: str = Parameter(default='x', factory_key=True)
+    negative: bool = Parameter(default=False, factory_key=True)
 
     def __repr__(self):
+        if self.negative:
+            return f'-{self.name}'
         return self.name
 
     def __hash__(self):
