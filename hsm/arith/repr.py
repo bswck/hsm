@@ -48,13 +48,15 @@ class PythonReprEngine(ReprEngine):
     def repr_operand(
         self, arith, operand,
         operation, tree=False, parentheses=False,
-        parenthesize_by_priority=True, **kwds
+        associativity_parenthesization=True,
+        priority_parenthesization=True, **kwds
     ):
         return operand.repr(
-            parentheses=(
+            parentheses=not operand.is_A and (
                 parentheses
                 or tree
-                or (parenthesize_by_priority and arith.priority > operand.priority)
+                or (priority_parenthesization and arith.priority > operand.priority)
+                or (arith.associative is operand.arith.associative)
             )
         )
 

@@ -55,7 +55,7 @@ class AbsoluteValue(Operation):
     name = 'abs'
     min_args = max_args = 1
     priority = Exponentiation.priority + 1
-    repr_engine = PythonReprEngine('|{0}|', 'composition', parenthesize_by_priority=False)
+    repr_engine = PythonReprEngine('|{0}|', 'composition', priority_parenthesization=False)
 
 
 class Relation(Arithmetic):
@@ -73,77 +73,77 @@ class Comparison(Relation):
 class Equal(Relation):
     name = 'eq'
     commutative = True
-    repr_engine = infix_operator('=', parenthesize_by_priority=False)
+    repr_engine = infix_operator('=', priority_parenthesization=False)
 
 
 class Inequal(Comparison):
     name = 'ne'
     commutative = True
-    repr_engine = infix_operator('!=', parenthesize_by_priority=False)
+    repr_engine = infix_operator('!=', priority_parenthesization=False)
 
 
 class GreaterEqual(Comparison):
     name = 'ge'
     swapped = 'le'
-    repr_engine = infix_operator('>=', parenthesize_by_priority=False)
+    repr_engine = infix_operator('>=', priority_parenthesization=False)
 
 
 class GreaterThan(Comparison):
     name = 'gt'
     swapped = 'lt'
-    repr_engine = infix_operator('>', parenthesize_by_priority=False)
+    repr_engine = infix_operator('>', priority_parenthesization=False)
 
 
 class LessEqual(Comparison):
     name = 'le'
     swapped = 'ge'
-    repr_engine = infix_operator('<=', parenthesize_by_priority=False)
+    repr_engine = infix_operator('<=', priority_parenthesization=False)
 
 
 class LessThan(Comparison):
     name = 'lt'
     swapped = 'gt'
-    repr_engine = infix_operator('<', parenthesize_by_priority=False)
+    repr_engine = infix_operator('<', priority_parenthesization=False)
 
 
 class In(Relation):
     name = 'in'
-    repr_engine = infix_operator('∈', parenthesize_by_priority=False)
+    repr_engine = infix_operator('∈', priority_parenthesization=False)
 
 
 class NotIn(In):
     name = 'not in'
-    repr_engine = infix_operator('∉', parenthesize_by_priority=False)
+    repr_engine = infix_operator('∉', priority_parenthesization=False)
 
 
 class SubsetOf(Relation):
     name = 'subset of'
-    repr_engine = infix_operator('⊂', parenthesize_by_priority=False)
+    repr_engine = infix_operator('⊂', priority_parenthesization=False)
 
 
 class ProperSubsetOf(SubsetOf):
     name = 'proper subset of'
-    repr_engine = infix_operator('⊊', parenthesize_by_priority=False)
+    repr_engine = infix_operator('⊊', priority_parenthesization=False)
 
 
 class Union(Arithmetic):
     name = 'union'
-    repr_engine = infix_operator('∪', parenthesize_by_priority=False)
+    repr_engine = infix_operator('∪', priority_parenthesization=False)
 
 
 class Intersection(Arithmetic):
     name = 'intersection'
-    repr_engine = infix_operator('∩', parenthesize_by_priority=False)
+    repr_engine = infix_operator('∩', priority_parenthesization=False)
 
 
 class Difference(Arithmetic):
     name = 'diff'
-    repr_engine = infix_operator('\\', parenthesize_by_priority=False)
+    repr_engine = infix_operator('\\', priority_parenthesization=False)
 
 
 class ApproximatelyEqual(Relation):
     name = 'approx eq'
-    repr_engine = infix_operator('≈', parenthesize_by_priority=False)
+    repr_engine = infix_operator('≈', priority_parenthesization=False)
 
 
 class BooleanRelation(Relation):
