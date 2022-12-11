@@ -147,12 +147,10 @@ class Operand:
     or_ = __or__
 
     def __xor__(self, other):
-        return self.join('xor', self, other)
+        return self.join('pow', self, other)
 
     def __rxor__(self, other):
-        return self.join('xor', other, self)
-
-    xor = __xor__
+        return self.join('pow', other, self)
 
     def contains(self, other):
         return self.join('contains', self, other)
