@@ -1,7 +1,8 @@
 import functools
 import numbers
 
-from hsm.arith.scheme import OperationScheme
+from hsm.arith.arithmetic import Arithmetic
+from hsm.arith.repr import PARENTHESES
 from hsm.toolkit import Dataclass, _Sentinel
 from hsm.toolkit import MISSING
 from hsm.toolkit import Argument
@@ -23,8 +24,8 @@ class Operand:
     is_CO = False   
     
     @staticmethod
-    def _op(scheme, operand_1, operand_2=MISSING):
-        return op(scheme, operand_1, operand_2)
+    def _op(arith, operand_1, operand_2=MISSING):
+        return op(arith, operand_1, operand_2)
 
     def reduce_join(self, op_name, *operands):
         operands = list(operands)
@@ -33,8 +34,8 @@ class Operand:
             operands, operands.pop(0)
         )
 
-    def op(self, scheme, other):
-        return self._op(scheme, self, other)
+    def op(self, arith, other):
+        return self._op(arith, self, other)
 
     def __add__(self, other):
         return self._op('add', self, other)
@@ -177,7 +178,7 @@ class Operand:
 
     invert = __invert__
 
-    def repr(self, parentheses=False):
+    def repr(self, tree=False, parentheses=False):
         raise NotImplementedError
 
 
@@ -207,7 +208,18 @@ class AtomicNode(Operand, Dataclass):
     const = False
     value: numbers.Real | Symbol = Parameter(factory_key=True)
     domain = Parameter(default='R', factory_key=True)
-    priority = -1
+    priority = 0
+    evaluates_to_bool = False
+    arith = None
+    _name = 'atomic'
+
+    def __post_init__(self):
+        if isinstance(self.value, bool):
+            self.evaluates_to_bool = True
+
+    @property
+    def name(self):
+        return self._name
 
     def _get_value(self, context):
         value = self.value
@@ -228,10 +240,10 @@ class AtomicNode(Operand, Dataclass):
     def __neg__(self):
         return AtomicNode(-self.value)
 
-    def repr(self, parentheses=False):
+    def repr(self, tree=False, parentheses=False):
         repr_string = str(self.value)
-        if isinstance(self.value, numbers.Real) and self.value < 0:
-            repr_string = repr_string.join('()')
+        if tree or (isinstance(self.value, numbers.Real) and self.value < 0):
+            repr_string = repr_string.join(PARENTHESES)
         return repr_string
 
     if __debug__:
@@ -246,7 +258,7 @@ a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z = s
 @coercion_factory(lambda tp: Coercion(tp, cast=hsm_operand))
 class AtomicOperation(Dataclass, Operand):
     is_O = True
-    scheme: OperationScheme = Argument()
+    arith: Arithmetic = Argument()
     operands: tuple[AtomicNode, ...] = Arguments(allow_hint_coercions=False)
     chained = False
     _const = False
@@ -256,18 +268,26 @@ class AtomicOperation(Dataclass, Operand):
         super().__post_init__()
         if all(obj.const for obj in self.operands):
             self._const = True
-        self.scheme.validate_operands(self, self.operands, allowed_types=self._allowed_types)
+        self.arith.validate_operands(self, self.operands, allowed_types=self._allowed_types)
 
     @property
     def const(self):
         return self._const
 
     @property
-    def priority(self):
-        return self.scheme.priority
+    def name(self):
+        return self.arith.name
 
-    def repr(self, parentheses=False):
-        return self.scheme.repr(self, self.operands, parentheses=parentheses)
+    @property
+    def evaluates_to_bool(self):
+        return self.arith.evaluates_to_bool
+
+    @property
+    def priority(self):
+        return self.arith.priority
+
+    def repr(self, **kwds):
+        return self.arith.repr(self, self.operands, **kwds)
 
     def __hash__(self):
         return hash(self.operands)
@@ -317,7 +337,7 @@ class CompoundOperation(AtomicOperation):
 
     @property
     def complexity_sorted_operands(self):
-        if self.scheme.associative:
+        if self.arith.associative:
             return *self.atomic_nodes, *self.atomic_operations, *self.compound_operations
         return self.operands
 
@@ -332,13 +352,17 @@ class _NameAccess:
             return hsm_operand(obj)
         return self.__fn(*args, **kwargs)
 
+    @staticmethod
+    def name_xform(name):
+        return name.rstrip('_').replace('_', ' ')
+
     def __getattr__(self, item):
-        return functools.partial(self.__fn, item)
+        return functools.partial(self.__fn, self.name_xform(item))
 
 
 @_NameAccess
 def op(
-    S: OperationScheme,
+    R: Arithmetic,
     o1: AtomicNode | AtomicOperation | CompoundOperation,
     o2: AtomicNode | AtomicOperation | CompoundOperation | _Sentinel = MISSING,
     *,
@@ -358,21 +382,21 @@ def op(
         Variable numbers used to indicate amount of operands in an operation.
     iA
         (Different or same) atomic nodes i times in a row.
-    O(S, i)
+    O(R, i)
         Domain: i ∈ <1, ∞)
-        Same as O(S, iA); atomic operation with operation scheme S and k atomic nodes.
-    CO(S, iA, jO)
+        Same as O(S, iA); atomic operation with arithmetic R and k atomic nodes.
+    CO(R, iA, jO)
         Domain: i ∈ <0, ∞) ∧ j <1, ∞)) ∨ (i ∈ <1, ∞) ∧ j <0, ∞)
-        Compound operation k with operation scheme S.
-    Operation scheme
+        Compound operation k with operation arith R.
+    Operation arith
         For example: + (addition). Consequently, example atomic
         addition operation could be O(+, k), meaning there are k atomic nodes added up together.
         For instance, a very specific case of pattern O(+, 3) is 1 + 2 + 3.
         8 * x + 3 + 4 would then be a specific case of CO(+, O(*, 2), 2A).
     @
-        Associative operation scheme.
-    S
-        Either associative or non-associative operation scheme.
+        Associative arithmetic.
+    R
+        Either associative or non-associative arithmetic.
 
     Return types depending on the input operands
     --------------------------------------------
@@ -382,14 +406,14 @@ def op(
     * `CO`, referring to :class:`CompoundOperation`.
     
     1. Atomic node A and atomic node A.
-        A ? A returns O(?, 2),
+        A R A returns O(R, 2),
         like l + m = l + m.
 
     2. Atomic node A and atomic operation O.
         A @ O(@, i) returns O(@, i+1),
         like l + (m + n) = l + m + n.
 
-        Any other case returns CO(S, A, O).
+        Any other case returns CO(R, A, O).
 
     3. Atomic node A and compound operation CO.
         Note: CO(@, iA, jO(@, k)) does not exist.
@@ -398,80 +422,82 @@ def op(
         A @ CO(@, iA, ...) returns CO(@, (i+1)A, ...),
         like l + (m + n + o + (p / q)) = l + m + n + o + (p / q).
 
-        Any other case returns CO(S, A, CO).
+        Any other case returns CO(R, A, CO).
 
     4. Atomic operation O and atomic node A.
         O(@, i) @ A returns O(@, i+1),
         like (k + l) + m = k + l + m.
 
-        Any other case returns CO(S, O, A).
+        Any other case returns CO(R, O, A).
 
     5. Atomic operation O and atomic operation O.
         O(@, i) @ O(@, j) returns O(@, i+j),
         like (l + m) + (n + o) = l + m + n + o.
 
-        Any other case returns CO(S, O, O).
+        Any other case returns CO(R, O, O).
 
     6. Atomic operation O and compound operation CO.
         O(@, i) @ CO(@, jA, kO) returns CO(@, (i+j)A, kO),
         like (l + m) + (n + o + (p * q)) = l + m + n + o + (p * q).
 
-        Any other case returns CO(S, O, CO).
+        Any other case returns CO(R, O, CO).
 
     7. Compound operation CO and atomic node A.
         CO(@, iA, jO) @ A returns CO(@, (i+1)A, jO),
         like (l + m + n + (o / p)) + q = l + m + n + o + q + (p / q).       
 
-        Any other case returns CO(S, CO, A).
+        Any other case returns CO(R, CO, A).
 
     8. Compound operation CO and atomic operation O.
         CO(@, iA, jO) @ O(@, k) returns CO(@, (i+k)A, jO),
         like (l + m + (p * q)) + (n + o) = l + m + n + o + (p * q).
 
-        Any other case returns CO(S, CO, O).
+        Any other case returns CO(R, CO, O).
 
     9. Compound operation CO and compound operation CO.
         CO(@, iA, jO) @ CO(@, lA, mO) returns CO(@, (i+l)A, (j+m)O),
         like (l + m + (p * q)) + (r + s + (t * u)) = l + m + r + s + (p * q) + (t * u).
          
-        Any other case returns CO(S, CO, CO).
+        Any other case returns CO(R, CO, CO).
     """
-    S = OperationScheme(S)
+    R = Arithmetic(R)
     o1 = hsm_operand(o1)
 
     if o2 is MISSING:
-        return O(S, o1) if o1.is_A else CO(S, o1)
+        return O(R, o1) if o1.is_A else CO(R, o1)
     o2 = hsm_operand(o2)
 
     simplifiable = bool(
-        S.associative
-        and (o1.is_A or (o1.scheme.associative and (o1.scheme is S)))
-        and (o2.is_A or (o2.scheme.associative and (o2.scheme is S)))
+        R.associative
+        and (o1.arith is R or o2.arith is R)
     )
 
     if o1.is_A:
         if o2.is_A:
-            return O(S, o1, o2)
+            return O(R, o1, o2)
 
     if simplifiable:
         if o1.is_A:
             if o2.is_O:
-                return O(S, o1, *o2.operands)
+                return O(R, o1, *o2.operands)
             if o2.is_CO:
-                return CO(S, o1, *o2.operands)
+                return CO(R, o1, *o2.operands)
+        elif not (o1.is_A or o2.is_A):
+            if o1.is_O and o2.is_O:
+                return O(R, *o1.operands, *o2.operands)
+            if o1.arith is o2.arith is R:
+                return CO(R, *o1.operands, *o2.operands)
+            if o1.arith is R:
+                return CO(R, *o1.operands, o2)
+            if o2.arith is R:
+                return CO(R, o1, *o2.operands)
         elif o1.is_O:
             if o2.is_A:
-                return O(S, *o1.operands, o2)
-            if o2.is_O:
-                return O(S, *o1.operands, *o2.operands)
-            if o2.is_CO:
-                return CO(S, *o1.operands, *o2.operands)
+                return O(R, *o1.operands, o2)
         elif o1.is_CO:
             if o2.is_A:
-                return CO(S, *o1.operands, o2)
-            if o2.is_O or o2.is_CO:
-                return CO(S, *o1.operands, *o2.operands)
-    return CO(S, o1, o2)
+                return CO(R, *o1.operands, o2)
+    return CO(R, o1, o2)
 
 
 @hsm_operand.register(AtomicNode)

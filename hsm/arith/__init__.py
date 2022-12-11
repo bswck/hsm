@@ -1,2 +1,2 @@
 from .tree import *
-from .schemes import *
+from .arithmetics import *
