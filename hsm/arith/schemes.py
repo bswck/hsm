@@ -49,7 +49,7 @@ class AbsoluteValue(OperationScheme):
     priority = Exponentiation.priority + 1
     fmt = '|{0}|'
 
-    def repr(self, op, objects, parentheses=False):
+    def repr(self, operation, objects, parentheses=False):
         return self.fmt.format(objects[0].repr(parentheses=False))
 
 
@@ -71,7 +71,7 @@ class Equal(BooleanOperationScheme):
     name = 'eq'
     commutative = True
     comparison = True
-    fmt = '{0} == {1}'
+    fmt = '{0} = {1}'
 
 
 class Inequal(BooleanOperationScheme):
@@ -136,3 +136,12 @@ class ExclusiveOr(RequiresBooleanOperands, BooleanOperationScheme):
     name = 'xor'
     commutative = True
     fmt = '{0} xor {1}'
+
+
+class FunctionScheme(OperationScheme):
+    priority = float('inf')
+    fmt = '{name}({0})'
+
+    def repr(self, operation, objects, parentheses=False):
+        return self.fmt.format(', '.join(map(repr, objects)), name=self.name)
+

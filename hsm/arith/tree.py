@@ -322,6 +322,21 @@ class CompoundOperation(AtomicOperation):
         return self.operands
 
 
+class _NameAccess:
+    def __init__(self, fn):
+        self.__fn = fn
+
+    def __call__(self, *args, **kwargs):
+        if len(args) == 1 and not kwargs:
+            obj, = args
+            return hsm_operand(obj)
+        return self.__fn(*args, **kwargs)
+
+    def __getattr__(self, item):
+        return functools.partial(self.__fn, item)
+
+
+@_NameAccess
 def op(
     S: OperationScheme,
     o1: AtomicNode | AtomicOperation | CompoundOperation,

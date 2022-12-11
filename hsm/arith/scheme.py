@@ -65,18 +65,18 @@ class OperationScheme(Dataclass):
             raise ValueError(f'cannot swap {self.name} operation')
         return type(op)(self._swapped_cls, *self.swap_operands(objects))
 
-    def repr(self, op, objects, parentheses=False):
+    def repr(self, operation, objects, parentheses=False):
         fmt = self.fmt
         self_priority = self.priority
         repr_string = fmt.format(
             *(obj.repr(parentheses=self_priority > obj.priority) for obj in objects)
         )
-        if op.chained:
+        if operation.chained:
             repr_string = functools.reduce(
                 fmt.format,
                 (
                     obj.repr(parentheses=self_priority > obj.priority)
-                    for obj in objects[op.scheme.nargs::]
+                    for obj in objects[operation.scheme.nargs::]
                 ),
                 repr_string
             )
