@@ -23,151 +23,157 @@ class Operand:
     is_CO = False   
     
     @staticmethod
-    def join(scheme, operand_1, operand_2=MISSING):
+    def _op(scheme, operand_1, operand_2=MISSING):
         return op(scheme, operand_1, operand_2)
 
     def reduce_join(self, op_name, *operands):
         operands = list(operands)
         return functools.reduce(
-            functools.partial(self.join, op_name),
+            functools.partial(self._op, op_name),
             operands, operands.pop(0)
         )
 
+    def op(self, scheme, other):
+        return self._op(scheme, self, other)
+
     def __add__(self, other):
-        return self.join('add', self, other)
+        return self._op('add', self, other)
 
     def __radd__(self, other):
-        return self.join('add', other, self)
+        return self._op('add', other, self)
 
     add = __add__
 
     def __sub__(self, other):
-        return self.join('sub', self, other)
+        return self._op('sub', self, other)
 
     def __rsub__(self, other):
-        return self.join('sub', other, self)
+        return self._op('sub', other, self)
 
     sub = __sub__
 
     def __mul__(self, other):
-        return self.join('mul', self, other)
+        return self._op('mul', self, other)
 
     def __rmul__(self, other):
-        return self.join('mul', other, self)
+        return self._op('mul', other, self)
 
     mul = __mul__
 
     def __truediv__(self, other):
-        return self.join('div', self, other)
+        return self._op('div', self, other)
 
     def __rtruediv__(self, other):
-        return self.join('div', other, self)
+        return self._op('div', other, self)
 
     div = __truediv__
 
     def __floordiv__(self, other):
-        return self.join('floordiv', self, other)
+        return self._op('floordiv', self, other)
 
     def __rfloordiv__(self, other):
-        return self.join('floordiv', other, self)
+        return self._op('floordiv', other, self)
 
     floordiv = __floordiv__
 
     def __mod__(self, other):
-        return self.join('mod', self, other)
+        return self._op('mod', self, other)
 
     def __rmod__(self, other):
-        return self.join('mod', other, self)
+        return self._op('mod', other, self)
 
     mod = __mod__
 
     def __matmul__(self, other):
-        return self.join('matmul', self, other)
+        return self._op('matmul', self, other)
 
     def __rmatmul__(self, other):
-        return self.join('matmul', other, self)
+        return self._op('matmul', other, self)
 
     matmul = __matmul__
 
     def __pow__(self, other):
-        return self.join('pow', self, other)
+        return self._op('pow', self, other)
 
     def __rpow__(self, other):
-        return self.join('pow', other, self)
+        return self._op('pow', other, self)
 
     pow = __pow__
 
     def root(self, other):
-        return self.join('root', self, other)
+        return self._op('root', self, other)
 
     def __eq__(self, other):
-        return self.join('eq', self, other)
+        return self._op('eq', self, other)
 
     eq = __eq__
 
     def __ne__(self, other):
-        return self.join('ne', self, other)
+        return self._op('ne', self, other)
 
     ne = __ne__
 
     def __ge__(self, other):
-        return self.join('ge', self, other)
+        return self._op('ge', self, other)
 
     ge = __ge__
 
     def __gt__(self, other):
-        return self.join('gt', self, other)
+        return self._op('gt', self, other)
 
     gt = __gt__
 
     def __le__(self, other):
-        return self.join('le', self, other)
+        return self._op('le', self, other)
 
     le = __le__
 
     def __lt__(self, other):
-        return self.join('lt', self, other)
+        return self._op('lt', self, other)
 
     lt = __lt__
 
     def __and__(self, other):
-        return self.join('and', self, other)
+        return self._op('and', self, other)
 
     def __rand__(self, other):
-        return self.join('and', other, self)
+        return self._op('and', other, self)
 
     and_ = __and__
 
     def __or__(self, other):
-        return self.join('or', self, other)
+        return self._op('or', self, other)
 
     def __ror__(self, other):
-        return self.join('or', other, self)
+        return self._op('or', other, self)
 
     or_ = __or__
 
     def __xor__(self, other):
-        return self.join('pow', self, other)
+        return self._op('pow', self, other)
 
     def __rxor__(self, other):
-        return self.join('pow', other, self)
+        return self._op('pow', other, self)
+
+    def xor(self, other):
+        return self._op('xor', self, other)
 
     def contains(self, other):
-        return self.join('contains', self, other)
+        return self._op('contains', self, other)
 
     def in_(self, other):
-        return self.join('contains', other, self)
+        return self._op('contains', other, self)
 
     def __getitem__(self, other):
-        return self.join('get', self, other)
+        return self._op('get', self, other)
 
     get = __getitem__
 
     def abs(self):
-        return self.join('abs', self)
+        return self._op('abs', self)
 
     def __invert__(self, other):
-        return self.join('invert', self)
+        return self._op('invert', self)
 
     invert = __invert__
 
