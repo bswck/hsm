@@ -1,10 +1,8 @@
-from hsm.core import BasicExpression
-from hsm.const import *
-from hsm.core import x, y, z
+from hsm.arith.tree import AtomicOperation
 
 
-subtraction = BasicExpression('sub', 2, 0, 3, 6)
+subtraction = AtomicOperation('sub', 2, 0, 3, 6)
 print(subtraction)
-addition = subtraction.reassemble('add')
+addition = subtraction.convert()
 print(addition)
 print(addition.reassemble('commutate'))

@@ -9,6 +9,7 @@ import types
 import typing
 import weakref
 
+from typing import ClassVar
 from hsm.errors import CoercionError
 from hsm.errors import ConstructorError
 
@@ -29,7 +30,9 @@ else:
 class Dataclass(metaclass=_DataclassMeta):
     __constructor__ = None
     __constructor_scan_annotations__ = True
+    __detect_identity_instance__ = None
     __constructor_kwargs__ = {}
+    __constructor_generation_attributes__ = {}
     __constructor_factory_key__ = None
 
     def __new__(cls, *args, **kwargs):
@@ -46,14 +49,21 @@ class Dataclass(metaclass=_DataclassMeta):
         elif args or kwargs:
             raise TypeError(f'{type(self).__name__}() takes no arguments')
 
+    def __post_init__(self):
+        pass
+
     def __init_subclass__(cls, generate_constructor=True, factory_key=None):
         if factory_key:
             cls.__constructor_factory_key__ = factory_key
         if generate_constructor:
-            constructor = generate_dataclass_constructor(cls)
+            constructor = generate_dataclass_constructor(
+                cls, cls.__constructor_generation_attributes__
+            )
             factory_key = cls.__constructor_factory_key__
-            if constructor and factory_key:
-                constructor.factory_key = factory_key
+            if constructor:
+                if factory_key:
+                    constructor.factory_key = factory_key
+            constructor.identity_instance_handler = cls.__detect_identity_instance__
 
     if __debug__:
         def __repr__(self):
@@ -376,7 +386,7 @@ class Parameter:
                     elif self.kind == self.VAR_KEYWORD:
                         value = {}
                     else:
-                        context.missing.reassembled_to_addition(name)
+                        context.missing.add(name)
                         return self.ERROR
             else:
                 value = default
@@ -412,14 +422,14 @@ class Parameter:
     VAR_POS_PREFIX = '*'
     VAR_KW_PREFIX = '**'
     DEFAULT_JOIN = '='
-    DEFAULT_FAC_JOIN = '->'
-    DEFAULT_FACINST_JOIN = '~>'
+    DEFAULT_FACTORY_JOIN = '->'
+    DEFAULT_INSTANCE_FACTORY_JOIN = '~>'
     UNNAMED = '(param?)'
 
     PAT = re.compile(
         rf'(?P<variadic_prefix>{re.escape(VAR_POS_PREFIX)}|{re.escape(VAR_KW_PREFIX)})'
-        rf'(?P<name>\S+)((?P<join>{DEFAULT_JOIN}|{DEFAULT_FAC_JOIN}|{DEFAULT_FACINST_JOIN})'
-        rf'(?P<default>.*))?'
+        rf'(?P<name>\S+)((?P<join>{DEFAULT_JOIN}|{DEFAULT_FACTORY_JOIN}|'
+        rf'{DEFAULT_INSTANCE_FACTORY_JOIN})(?P<default>.*))?'
     )
 
     @classmethod
@@ -431,9 +441,11 @@ class Parameter:
             variadic_prefix = data['variadic_prefix']
             name = data['name']
             default = data.get('default', MISSING)
-            default_is_factory = data.get('join') in (cls.DEFAULT_JOIN, cls.DEFAULT_FACINST_JOIN)
+            default_is_factory = data.get('join') in (
+                cls.DEFAULT_JOIN, cls.DEFAULT_INSTANCE_FACTORY_JOIN
+            )
             if default_is_factory:
-                inst.instance_factory = data.get('join') == cls.DEFAULT_FACINST_JOIN
+                inst.instance_factory = data.get('join') == cls.DEFAULT_INSTANCE_FACTORY_JOIN
             if variadic_prefix == cls.VAR_POS_PREFIX:
                 inst.kind = cls.VAR_POSITIONAL
             if variadic_prefix == cls.VAR_POS_PREFIX:
@@ -461,7 +473,10 @@ class Parameter:
         const = default_obj is self.default
         if default_obj:
             join = (
-                (self.DEFAULT_FAC_JOIN, self.DEFAULT_FACINST_JOIN)[self.instance_factory],
+                (
+                    self.DEFAULT_FACTORY_JOIN,
+                    self.DEFAULT_INSTANCE_FACTORY_JOIN
+                )[self.instance_factory],
                 self.DEFAULT_JOIN
             )[const]
             repr_string += join
@@ -517,6 +532,7 @@ class Namespace(dict, _AttributialItemOps):
 
 class Constructor(collections.UserDict, _AttributialItemOps):
     factory_key = None
+    identity_instance_handler = None
     INITIALIZED_FLAG = '__hsm_initialized__'
 
     def __init__(self, other=None, /, **kwargs):
@@ -568,6 +584,10 @@ class Constructor(collections.UserDict, _AttributialItemOps):
         return constructor
 
     def new(self, cls, args, kwargs):
+        if callable(self.identity_instance_handler):
+            ok, identity_instance = self.identity_instance_handler(args, kwargs)
+            if ok:
+                return identity_instance
         key_maker = self.factory_key
         key = MISSING
 
@@ -762,27 +782,37 @@ def coercion_factory(fn, tp=None):
     return tp
 
 
-def attribute_predicate(member, hints):
+def attribute_predicate(member, hints, allow_classvar=False):
     name, value = member
-    return name in hints or isinstance(value, Parameter)
+    return (
+        name in hints and
+        (allow_classvar or typing.get_origin(value) is not ClassVar)
+        or isinstance(value, Parameter)
+    )
 
 
 def generate_dataclass_constructor(
     cls,
     attributes=None,
+    ignore_classvars=True
 ):
-    hints = typing.get_type_hints(cls)
-    if attributes is None:
-        ordered_hints = tuple(hints)
-        attributes = sorted(
-            dict(
-                filter(
-                    functools.partial(attribute_predicate, hints=hints),
-                    dict(inspect.getmembers(cls), **hints).items()
-                )
-            ),
-            key=lambda obj: ordered_hints.index(obj) if obj in ordered_hints else INFINITE
-        )
+    hints = typing.get_type_hints(cls, localns={cls.__name__: cls})
+    if not attributes:
+        attributes = tuple(dict(
+            filter(
+                functools.partial(
+                    attribute_predicate,
+                    allow_classvar=not ignore_classvars,
+                    hints=hints
+                ),
+                dict(inspect.getmembers(cls), **hints).items()
+            )
+        ))
+    ordered_hints = tuple(hints)
+    attributes = sorted(
+        attributes,
+        key=lambda obj: ordered_hints.index(obj) if obj in ordered_hints else INFINITE
+    )
     args = {}
     kw_only = False
     for attribute in attributes:
@@ -797,10 +827,10 @@ def generate_dataclass_constructor(
             continue
         value = getattr(cls, attribute, MISSING)
         if isinstance(value, Parameter):
-            param = value
-            args[attribute] = param
+            parameter = value
+            args[attribute] = parameter
             if coercion:
-                param.add_coercion(coercion, location='fb', _is_hint_coercion=hint is not None)
+                parameter.add_coercion(coercion, location='fb', _is_hint_coercion=hint is not None)
             if kw_only:
                 if value.kind < Parameter.POSITIONAL_OR_KEYWORD:
                     raise ConstructorError(
@@ -808,9 +838,9 @@ def generate_dataclass_constructor(
                         'signature'
                     )
         else:
-            param = Parameter(coercion, default=value)
-            args[attribute] = param
-        if param.is_factory_key:
+            parameter = Parameter(coercion, default=value)
+            args[attribute] = parameter
+        if parameter.is_factory_key:
             factory_key = cls.__constructor_factory_key__ or ()
             if isinstance(factory_key, str):
                 factory_key = factory_key.replace(',', ' ').split()
@@ -818,8 +848,8 @@ def generate_dataclass_constructor(
                 factory_key = (*factory_key, attribute)
             cls.__constructor_factory_key__ = factory_key
         if kw_only:
-            param.kind = Parameter.KEYWORD_ONLY
-        if param.kind == Parameter.VAR_POSITIONAL:
+            parameter.kind = Parameter.KEYWORD_ONLY
+        if parameter.kind == Parameter.VAR_POSITIONAL:
             kw_only = True
     kwargs = cls.__constructor_kwargs__
     constructor = Constructor(args, **kwargs)
@@ -828,3 +858,11 @@ def generate_dataclass_constructor(
     else:
         cls.__constructor__ = constructor
     return constructor
+
+
+def detect_identity_instance(cls, args, kwargs):
+    if not kwargs and len(args) == 1:
+        identity_instance = args[0]
+        if isinstance(identity_instance, cls):
+            return True, identity_instance
+    return False, None
