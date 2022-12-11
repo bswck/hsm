@@ -206,7 +206,7 @@ def symbols(name_string):
 class AtomicNode(Operand, Dataclass):
     is_A = True
     const = False
-    value: numbers.Real | Symbol = Parameter(factory_key=True)
+    value: Symbol | numbers.Real = Parameter(factory_key=True)
     domain = Parameter(default='R', factory_key=True)
     priority = 0
     evaluates_to_bool = False
@@ -242,7 +242,7 @@ class AtomicNode(Operand, Dataclass):
 
     def repr(self, tree=False, parentheses=False):
         repr_string = str(self.value)
-        if tree or (isinstance(self.value, numbers.Real) and self.value < 0):
+        if parentheses or tree or (isinstance(self.value, numbers.Real) and self.value < 0):
             repr_string = repr_string.join(PARENTHESES)
         return repr_string
 
