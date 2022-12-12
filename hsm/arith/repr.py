@@ -59,7 +59,7 @@ class PythonReprEngine(ReprEngine):
                     priority_parenthesization
                     and arith.priority >= operand.priority
                     and associativity_parenthesization
-                    and (context or (arith is not operand.arith))
+                    and (context or (context and arith is not operand.arith))
                     and not arith.associative
                 )
             )

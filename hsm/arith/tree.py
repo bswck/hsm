@@ -249,9 +249,8 @@ class AtomicNode(Operand, Dataclass):
             repr_string = repr_string.join(PARENTHESES)
         return repr_string
 
-    if __debug__:
-        def __repr__(self):
-            return self.repr()
+    def __repr__(self):
+        return self.repr()
 
 
 _ = 'abcdefghijklmnopqrstuvwxyz'
@@ -295,9 +294,8 @@ class AtomicOperation(Dataclass, Operand):
     def __hash__(self):
         return hash(self.operands)
 
-    if __debug__:
-        def __repr__(self):
-            return self.repr()
+    def __repr__(self):
+        return self.repr()
 
 
 class CompoundOperation(AtomicOperation):
@@ -345,7 +343,7 @@ class CompoundOperation(AtomicOperation):
         return self.operands
 
 
-class _NameAccess:
+class _OpFunction:
     def __init__(self, fn):
         self.__fn = fn
 
@@ -363,7 +361,7 @@ class _NameAccess:
         return functools.partial(self.__fn, self.name_xform(item))
 
 
-@_NameAccess
+@_OpFunction
 def op(
     R: Arithmetic,
     o1: AtomicNode | AtomicOperation | CompoundOperation,

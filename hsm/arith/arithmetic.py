@@ -15,14 +15,12 @@ class Arithmetic(Dataclass):
     _instances = weakref.WeakValueDictionary()
 
     name = Argument()
-    repr_fmt: ClassVar[str] = '{0}?'
     min_args: ClassVar[int | None] = None
     max_args: ClassVar[int | float | None] = None
     priority: ClassVar[int] = 0
     associative: ClassVar[bool | None] = False
     commutative: ClassVar[bool] = False
     comparison: ClassVar[bool] = False
-    inverse: ClassVar[str | None]
     chainable: ClassVar[bool | None] = None
     swapped: ClassVar[str | None] = None
     _swapped_cls: 'ClassVar[type[Arithmetic] | None]' = None
