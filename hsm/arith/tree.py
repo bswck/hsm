@@ -1,5 +1,6 @@
 import functools
 import numbers
+from collections import namedtuple
 
 from hsm.arith.arithmetic import Arithmetic
 from hsm.arith.repr import PARENTHESES
