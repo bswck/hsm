@@ -32,6 +32,12 @@ class Multiplication(Operation):
     repr_engine = infix_operator('*')
 
 
+class Unary(Multiplication):
+    name = 'unary'
+    min_args = max_args = 1
+    repr_engine = PythonReprEngine('-{0}', 'composition', parentheses=True)
+
+
 class Division(Multiplication):
     name = 'div'
     associative = False

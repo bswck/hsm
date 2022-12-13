@@ -160,10 +160,10 @@ class Operand:
         return self._op('xor', self, other)
 
     def contains(self, other):
-        return self._op('contains', self, other)
+        return self._op('in', other, self)
 
     def in_(self, other):
-        return self._op('contains', other, self)
+        return self._op('in', self, other)
 
     def __getitem__(self, other):
         return self._op('get', self, other)
@@ -178,6 +178,9 @@ class Operand:
 
     invert = __invert__
 
+    def __neg__(self):
+        return self._op('unary', self)
+
     def repr(self, tree=False, parentheses=False):
         raise NotImplementedError
 
@@ -190,6 +193,9 @@ class Symbol(Dataclass):
         if self.negative:
             return f'-{self.name}'
         return self.name
+
+    def __neg__(self):
+        return type(self)(self.name, negative=not self.negative)
 
     def __hash__(self):
         return hash(self.name)
@@ -207,10 +213,11 @@ def symbols(name_string):
 @hsm_operand.register(Symbol)
 @hsm_operand.register(str)
 class AtomicNode(Operand, Dataclass):
-    is_A = True
-    const = False
     value: Symbol | numbers.Real = Parameter(factory_key=True)
     domain = Parameter(default='R', factory_key=True)
+
+    is_A = True
+    const = False
     priority = 0
     evaluates_to_bool = False
     arith = None
@@ -243,9 +250,16 @@ class AtomicNode(Operand, Dataclass):
     def __neg__(self):
         return AtomicNode(-self.value)
 
-    def repr(self, tree=False, parentheses=False):
-        repr_string = str(self.value)
-        if parentheses or tree or (isinstance(self.value, numbers.Real) and self.value < 0):
+    def repr(self, tree=False, parentheses=False, context=None, **kwds):
+        value = self.value
+        repr_string = repr(value)
+        if parentheses or tree or (
+            (
+                (isinstance(value, numbers.Real) and value < 0)
+                or (isinstance(value, Symbol) and value.negative)
+            )
+            and context
+        ):
             repr_string = repr_string.join(PARENTHESES)
         return repr_string
 

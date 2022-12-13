@@ -28,6 +28,8 @@ class Arithmetic(Dataclass):
     repr_engine: ClassVar[ReprEngine] = PythonReprEngine('Arithmetic({})', 'listing')
 
     def __new__(cls, name):
+        if isinstance(name, cls):
+            return name
         try:
             arith = cls._instances[name]
         except KeyError:

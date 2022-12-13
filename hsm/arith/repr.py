@@ -8,6 +8,12 @@ PARENTHESES = '()'
 NO_PARENTHESES = '', ''
 
 
+class ReprContext(Dataclass):
+    neighbours: tuple
+    parentheses: bool
+
+
+
 class ReprEngine(Dataclass):
     repr_fmt: str
     repr_type: str
@@ -49,21 +55,23 @@ class PythonReprEngine(ReprEngine):
         self, arith, operand,
         operation, tree=False, parentheses=False,
         associativity_parenthesization=True,
-        priority_parenthesization=True, context=None, **kwds
+        priority_parenthesization=True, context=None,
+        **kwds
     ):
-        return operand.repr(
-            parentheses=not operand.is_A and (
+        if not operand.is_A:
+            parentheses = (
                 parentheses
                 or tree
                 or (
                     priority_parenthesization
                     and arith.priority >= operand.priority
                     and associativity_parenthesization
-                    and (context or (context and arith is not operand.arith))
-                    and not arith.associative
+                    and context  # and ((not parentheses_require_context) or context)
+                    and ((arith.priority > operand.priority) or not arith.associative)
                 )
             )
-        )
+            context = None
+        return operand.repr(parentheses=parentheses, context=context)
 
 
 def infix_operator(symbol, add_surrounding_spaces=True, **kwds):
@@ -93,9 +101,10 @@ class CompleteReprEngine(ReprEngine, new_dispatch=False):
 
 
 @PythonReprEngine.repr_factory(name='composition')
-def composition(engine, arith, operation, operands, **kwds):
+def composition(engine, arith, operation, operands, context=None, **kwds):
     fmt = engine.repr_fmt
-    context = []
+    if context is None:
+        context = []
     repr_string = fmt.format(*(
         (
             engine.repr_operand(arith, operand, operation, context=context, **kwds),
@@ -119,8 +128,9 @@ def composition(engine, arith, operation, operands, **kwds):
 
 
 @PythonReprEngine.repr_factory(name='join')
-def join(engine, arith, operation, operands, **kwds):
-    context = []
+def join(engine, arith, operation, operands, context=None, **kwds):
+    if context is None:
+        context = []
     return engine.repr_fmt.join(
         (
             engine.repr_operand(arith, operand, operation, context=context, **kwds),
@@ -131,8 +141,9 @@ def join(engine, arith, operation, operands, **kwds):
 
 
 @PythonReprEngine.repr_factory(name='list')
-def list_(engine, arith, operation, operands, **kwds):
-    context = []
+def list_(engine, arith, operation, operands, context=None, **kwds):
+    if context is None:
+        context = []
     return engine.repr_fmt.format(
         engine.listing_denominator.join(
             (
