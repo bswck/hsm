@@ -6,9 +6,6 @@ from hsm.toolkit import Dataclass
 
 
 class Arithmetic(Dataclass):
-    _all_ariths = {}
-    _instances = weakref.WeakValueDictionary()
-
     name: str | None = None
     full_name: ClassVar[str | None] = None
     min_args: ClassVar[int | None] = None
@@ -21,6 +18,9 @@ class Arithmetic(Dataclass):
     swapped: ClassVar[str | None] = None
     evaluates_to_bool: ClassVar[bool] = False
     _swapped_cls: 'ClassVar[type[Arithmetic] | None]' = None
+
+    _all_ariths = {}
+    _instances = weakref.WeakValueDictionary()
 
     def __new__(cls, name):
         if isinstance(name, cls):
