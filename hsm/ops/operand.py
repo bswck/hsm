@@ -364,7 +364,7 @@ class _OpFunction:
         return name.replace('_', ' ').rstrip()
 
     def __getattr__(self, item):
-        return functools.partial(self.__op, self._sanitize_attr_name(item))
+        return functools.partial(self, self._sanitize_attr_name(item))
 
 
 @_OpFunction
