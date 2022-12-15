@@ -1,13 +1,8 @@
+import functools
 import weakref
 from typing import ClassVar
 
-from hsm.arith.repr import ReprEngine, PythonReprEngine
 from hsm.toolkit import Dataclass, Argument
-
-
-# To be invented later
-# class Domain(Dataclass):
-#     pass
 
 
 class Arithmetic(Dataclass):
@@ -23,9 +18,8 @@ class Arithmetic(Dataclass):
     comparison: ClassVar[bool] = False
     chainable: ClassVar[bool | None] = None
     swapped: ClassVar[str | None] = None
-    _swapped_cls: 'ClassVar[type[Arithmetic] | None]' = None
     evaluates_to_bool: ClassVar[bool] = False
-    repr_engine: ClassVar[ReprEngine] = PythonReprEngine('Arithmetic({})', 'listing')
+    _swapped_cls: 'ClassVar[type[Arithmetic] | None]' = None
 
     def __new__(cls, name):
         if isinstance(name, cls):
@@ -33,7 +27,7 @@ class Arithmetic(Dataclass):
         try:
             arith = cls._instances[name]
         except KeyError:
-            arith = cls._all_ariths[name](name)
+            arith = cls._all_ariths[name]()
             cls._instances[name] = arith
         return arith
 
@@ -70,13 +64,11 @@ class Arithmetic(Dataclass):
             raise ValueError(f'cannot swap {self.name} operation')
         return type(op)(self._swapped_cls, *self.swap_operands(objects))
 
-    def repr(self, operation, operands, **kwds):
-        return self.repr_engine.repr(self, operation, operands, **kwds)
-
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         if cls.name:
-            cls.__new__ = lambda c, name: object.__new__(c)
+            cls.__ignore_missing_args__ = True
+            cls.__new__ = functools.update_wrapper(lambda c: object.__new__(c), cls.__new__)
             cls._all_ariths[cls.name] = cls
             swapped_name = cls.swapped
             swapped_cls = cls._swapped_cls
@@ -96,6 +88,21 @@ class Arithmetic(Dataclass):
                     cls.chainable = cls.min_args > 1
             if cls.max_args is None:
                 cls.max_args = float('inf')
-
-    def __repr__(self):
-        return self.name
+#
+#
+# class Domain(Dataclass):
+#     _all_domains = {}
+#     _instances = weakref.WeakValueDictionary()
+#
+#     name = Argument()
+#
+#     def __new__(cls, name):
+#         # Analogical behaviour to Arithmetic() constructor
+#         if isinstance(name, cls):
+#             return name
+#         try:
+#             domain = cls._instances[name]
+#         except KeyError:
+#             domain = cls._all_domains[name]()
+#             cls._instances[name] = domain
+#         return domain

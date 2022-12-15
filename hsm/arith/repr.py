@@ -10,8 +10,6 @@ NO_PARENTHESES = '', ''
 
 class ReprContext(Dataclass):
     neighbours: tuple
-    parentheses: bool
-
 
 
 class ReprEngine(Dataclass):
@@ -30,24 +28,6 @@ class ReprEngine(Dataclass):
 
     def repr_operand(self, arith, operand, operation, parentheses=False, **kwds):
         raise NotImplementedError
-
-    def repr(self, arith, operation, operands, tree=False, parentheses=False, **kwds):
-        try:
-            subrepr = self.repr_dispatch[self.repr_type]
-        except KeyError:
-            raise ValueError(f'invalid representation type: {self.repr_type}')
-        repr_string = subrepr(
-            self, arith, operation, operands,
-            tree=tree, **{**self.kwds, **kwds}
-        )
-        if tree or parentheses:
-            repr_string = repr_string.join(PARENTHESES)
-        return repr_string
-
-    def __init_subclass__(cls, new_dispatch=True, **kwargs):
-        super().__init_subclass__(**kwargs)
-        if new_dispatch:
-            cls.repr_dispatch = {}
 
 
 class PythonReprEngine(ReprEngine):
@@ -82,22 +62,11 @@ def infix_operator(symbol, add_surrounding_spaces=True, **kwds):
 
 
 class CompleteReprEngine(ReprEngine, new_dispatch=False):
+    def repr_operand(self, arith, operand, operation, parentheses=False, **kwds):
+        pass
+
     def repr_atomic(self, value, arith, operand, operation, parentheses=False, **kwds):
         raise NotImplementedError
-
-    def repr_operand(self, arith, operand, operation, tree=False, parentheses=False, **kwds):
-        if operand.is_A:
-            return self.repr_atomic(
-                operand.value,
-                arith, operand,
-                operation,
-                parentheses=parentheses,
-                **kwds
-            )
-        return self.repr(
-            operand.arith, operand, operand.operands,
-            parentheses=parentheses, **kwds
-        )
 
 
 @PythonReprEngine.repr_factory(name='composition')

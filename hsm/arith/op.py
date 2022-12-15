@@ -1,16 +1,8 @@
 import functools
 import numbers
-from collections import namedtuple
 
-from hsm.arith.arithmetic import Arithmetic
-from hsm.arith.repr import PARENTHESES
-from hsm.toolkit import Dataclass, _Sentinel
-from hsm.toolkit import MISSING
-from hsm.toolkit import Argument
-from hsm.toolkit import Arguments
-from hsm.toolkit import Parameter
-from hsm.toolkit import Coercion
-from hsm.toolkit import coercion_factory
+from hsm import toolkit
+from hsm.arith.base import Arithmetic
 
 
 @functools.singledispatch
@@ -25,7 +17,7 @@ class Operand:
     is_CO = False   
     
     @staticmethod
-    def _op(arith, operand_1, operand_2=MISSING):
+    def _op(arith, operand_1, operand_2=toolkit.MISSING):
         return op(arith, operand_1, operand_2)
 
     def reduce_join(self, op_name, *operands):
@@ -182,13 +174,10 @@ class Operand:
     def __neg__(self):
         return self._op('unary', self)
 
-    def repr(self, tree=False, parentheses=False):
-        raise NotImplementedError
 
-
-class Symbol(Dataclass):
-    name: str = Parameter(default='x', factory_key=True)
-    negative: bool = Parameter(default=False, factory_key=True)
+class Symbol(toolkit.Dataclass):
+    name: str = toolkit.Parameter(default='x', factory_key=True)
+    negative: bool = toolkit.Parameter(default=False, factory_key=True)
 
     def __repr__(self):
         if self.negative:
@@ -213,9 +202,9 @@ def symbols(name_string):
 @hsm_operand.register(numbers.Real)
 @hsm_operand.register(Symbol)
 @hsm_operand.register(str)
-class AtomicNode(Operand, Dataclass):
-    value: Symbol | numbers.Real = Parameter(factory_key=True)
-    domain = Parameter(default='R', factory_key=True)
+class AtomicNode(Operand, toolkit.Dataclass):
+    value: Symbol | numbers.Real = toolkit.Parameter(factory_key=True)
+    # domain = toolkit.Parameter(default='R', factory_key=True)
 
     is_A = True
     const = False
@@ -251,32 +240,17 @@ class AtomicNode(Operand, Dataclass):
     def __neg__(self):
         return AtomicNode(-self.value)
 
-    def repr(self, tree=False, parentheses=False, context=None, **kwds):
-        value = self.value
-        repr_string = repr(value)
-        if parentheses or tree or (
-            (
-                (isinstance(value, numbers.Real) and value < 0)
-                or (isinstance(value, Symbol) and value.negative)
-            )
-            and context
-        ):
-            repr_string = repr_string.join(PARENTHESES)
-        return repr_string
-
-    def __repr__(self):
-        return self.repr()
-
 
 _ = 'abcdefghijklmnopqrstuvwxyz'
 a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z = symbols(_)
 
 
-@coercion_factory(lambda tp: Coercion(tp, cast=hsm_operand))
-class AtomicOperation(Dataclass, Operand):
+@toolkit.coercion_factory(lambda tp: toolkit.Coercion(tp, cast=hsm_operand))
+class AtomicOperation(toolkit.Dataclass, Operand):
+    arith: Arithmetic = toolkit.Argument()
+    operands: tuple[AtomicNode, ...] = toolkit.Arguments(allow_hint_coercions=False)
+
     is_O = True
-    arith: Arithmetic = Argument()
-    operands: tuple[AtomicNode, ...] = Arguments(allow_hint_coercions=False)
     chained = False
     _const = False
     _allowed_types = AtomicNode
@@ -303,22 +277,17 @@ class AtomicOperation(Dataclass, Operand):
     def priority(self):
         return self.arith.priority
 
-    def repr(self, **kwds):
-        return self.arith.repr(self, self.operands, **kwds)
-
     def __hash__(self):
         return hash(self.operands)
 
-    def __repr__(self):
-        return self.repr()
-
 
 class CompoundOperation(AtomicOperation):
-    is_O = False
-    is_CO = True
-    operands: 'tuple[AtomicOperation | CompoundOperation | AtomicNode, ...]' = Arguments(
+    operands: 'tuple[AtomicNode | AtomicOperation | CompoundOperation, ...]' = toolkit.Arguments(
         factory_key=True, allow_hint_coercions=False
     )
+
+    is_O = False
+    is_CO = True
 
     def __post_init__(self):
         self._allowed_types = (AtomicNode, AtomicOperation, CompoundOperation)
@@ -357,6 +326,13 @@ class CompoundOperation(AtomicOperation):
             return *self.atomic_nodes, *self.atomic_operations, *self.compound_operations
         return self.operands
 
+    def __repr__(self):
+        def mapper(name, item, ident=0):
+            if name == 'operands':
+                return toolkit.nested_repr_ident(item, ident=ident)
+            return repr(item)
+        return self.repr(ident=4, mapper=mapper)
+
 
 class _OpFunction:
     def __init__(self, fn):
@@ -369,18 +345,18 @@ class _OpFunction:
         return self.__fn(*args, **kwargs)
 
     @staticmethod
-    def name_xform(name):
-        return name.rstrip('_').replace('_', ' ')
+    def _name_xform(name):
+        return name.replace('_', ' ').rstrip()
 
     def __getattr__(self, item):
-        return functools.partial(self.__fn, self.name_xform(item))
+        return functools.partial(self.__fn, self._name_xform(item))
 
 
 @_OpFunction
 def op(
     R: Arithmetic,
     o1: AtomicNode | AtomicOperation | CompoundOperation,
-    o2: AtomicNode | AtomicOperation | CompoundOperation | _Sentinel = MISSING,
+    o2: AtomicNode | AtomicOperation | CompoundOperation | toolkit._Sentinel = toolkit.MISSING,
     *,
     O: type[AtomicOperation] = AtomicOperation,
     CO: type[CompoundOperation] = CompoundOperation,
@@ -479,7 +455,7 @@ def op(
     R = Arithmetic(R)
     o1 = hsm_operand(o1)
 
-    if o2 is MISSING:
+    if o2 is toolkit.MISSING:
         return O(R, o1) if o1.is_A else CO(R, o1)
     o2 = hsm_operand(o2)
 
@@ -513,6 +489,7 @@ def op(
         elif o1.is_CO:
             if o2.is_A:
                 return CO(R, *o1.operands, o2)
+
     return CO(R, o1, o2)
 
 

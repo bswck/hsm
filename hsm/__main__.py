@@ -1,4 +1,4 @@
-from hsm.arith.tree import AtomicOperation
+from hsm.arith.op import AtomicOperation
 
 
 subtraction = AtomicOperation('sub', 2, 0, 3, 6)

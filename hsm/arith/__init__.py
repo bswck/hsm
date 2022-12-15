@@ -1,2 +1,2 @@
-from .tree import *
-from .arithmetics import *
+from .op import *
+from .ariths import *

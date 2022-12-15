@@ -65,14 +65,79 @@ class Dataclass(metaclass=_DataclassMeta):
                     constructor.factory_key = factory_key
             constructor.identity_instance_handler = cls.__detect_identity_instance__
 
+    def repr(self, **kwds):
+        constructor = self.__constructor__
+        if constructor:
+            return repr_ident_dict(
+                constructor.attributes,
+                prefix=type(self).__qualname__,
+                accessor=lambda _, name: getattr(self, name),
+                **kwds
+            )
+        return object.__repr__(self)
+
     if __debug__:
         def __repr__(self):
-            constructor = self.__constructor__
-            if constructor:
-                return type(self).__qualname__ + ', '.join(
-                    f'{name!s}={getattr(self, name)!r}' for name in constructor.attributes
-                ).join('()')
-            return object.__repr__(self)
+            return self.repr()
+
+
+def repr_ident(
+    collection,
+    ident=0,
+    split=None,
+    prefix='',
+    mapper=None,
+    brackets='()',
+    sep=','
+):
+    if split is None:
+        split = bool(ident)
+    mapper = mapper or (lambda item, i=0: repr(item))
+    lb, rb = brackets
+    ident_string = ('\n' + ' ' * ident) if split else ''
+    repr_string = prefix + lb + ident_string
+    repr_string += (sep + ('\n' if split else ' ')).join(
+        f'{mapper(item, ident)}'
+        for item in collection
+    ).replace('\n', ident_string or '\n')
+    repr_string += ('\n' if split else '') + rb
+    return repr_string
+
+
+def nested_repr_ident(
+    collection,
+    ident=0,
+    split=True,
+    prefix='',
+    mapper=None,
+    brackets='()',
+    sep=','
+):
+    return repr_ident(
+        collection, ident=ident, split=split, prefix=prefix,
+        mapper=mapper, brackets=brackets, sep=sep
+    )
+
+
+def repr_ident_dict(
+    dict_obj,
+    ident=0,
+    split=None,
+    prefix='',
+    mapper=None,
+    brackets='()',
+    sep=',',
+    accessor=operator.getitem
+):
+    mapper = mapper or (lambda name, item, i=0: repr(item))
+
+    def wrapper(item, i=0):
+        return f'{item}={mapper(item, accessor(dict_obj, item), i)}'
+
+    return repr_ident(
+        dict_obj, ident=ident, split=split, prefix=prefix,
+        mapper=wrapper, brackets=brackets, sep=sep
+    )
 
 
 class _Sentinel:
@@ -534,6 +599,7 @@ class Constructor(collections.UserDict, _AttributialItemOps):
     factory_key = None
     identity_instance_handler = None
     INITIALIZED_FLAG = '__hsm_initialized__'
+    IGNORE_MISSING_FLAG = '__ignore_missing_args__'
 
     def __init__(self, other=None, /, **kwargs):
         super().__init__(other)
@@ -666,13 +732,14 @@ class Constructor(collections.UserDict, _AttributialItemOps):
             parameter = self.data[argument]
             parameter.set(argument, context, instance=instance, value=value)
 
-        missing = context.missing
-        if missing:
-            cls_name = type(instance).__name__
-            raise TypeError(
-                f'{cls_name}.__init__() missing {len(missing)} '
-                f'required argument(s): {", ".join(missing)}'
-            )
+        if not getattr(instance, self.IGNORE_MISSING_FLAG, False):
+            missing = context.missing
+            if missing:
+                cls_name = type(instance).__name__
+                raise TypeError(
+                    f'{cls_name}.__init__() missing {len(missing)} '
+                    f'required argument(s): {", ".join(missing)}'
+                )
 
         self.mark_initialized(instance)
 
