@@ -470,13 +470,11 @@ def op(
         return O(R, o1) if o1.is_A else CO(R, o1)
     o2 = hsm_operand(o2)
 
-    simplifiable = R.associative and (o1.arith is R or o2.arith is R)
-
     if o1.is_A:
         if o2.is_A:
             return O(R, o1, o2)
 
-    if simplifiable:
+    if R.associative and (o1.arith is R or o2.arith is R):
         if o1.is_A:
             if o2.is_O:
                 return O(R, o1, *o2.operands)
