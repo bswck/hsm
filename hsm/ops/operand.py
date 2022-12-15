@@ -385,21 +385,21 @@ def op(
     some helper symbols and terms have been coined.
 
     A
-        Atomic node A: sole mathematical object without any operation performed on it,
+        Atomic operand A: sole mathematical object without any operation performed on it,
         for example: x, 1 or -102.6.
     i, j, k...
         Variable numbers used to indicate amount of operands in an operation.
     iA
-        (Different or same) atomic nodes i times in a row.
+        (Different or same) atomic operands i times in a row.
     O(Op, i)
         Domain: i ∈ <1, ∞)
-        Same as O(S, iA); atomic operation with operation Op and k atomic nodes.
+        Same as O(S, iA); atomic operation operand with operation Op and k atomic operands.
     CO(Op, iA, jO)
         Domain: (i ∈ <0, ∞) ∧ j <1, ∞)) ∨ (i ∈ <1, ∞) ∧ j <0, ∞))
-        Compound operation k with operation Op.
+        Compound operation operand k with operation Op.
     Operation (Op)
         For example: + (addition). Consequently, example atomic
-        addition operation could be O(+, k), meaning there are k atomic nodes added up together.
+        addition operation could be O(+, k), meaning there are k atomic operands added up together.
         For instance, a very specific case of pattern O(+, 3) is 1 + 2 + 3.
         8 * x + 3 + 4 would then be a specific case of CO(+, O(*, 2), 2A).
     @
@@ -412,17 +412,17 @@ def op(
     * `O`, referring to :class:`AtomicOperationOperand;
     * `CO`, referring to :class:`CompoundOperationOperand.
     
-    1. Atomic node A and atomic node A.
+    1. Atomic operand A and atomic operand A.
         A Op A returns O(Op, 2),
         like l + m = l + m.
 
-    2. Atomic node A and atomic operation O.
+    2. Atomic operand A and atomic operation operand O.
         A @ O(@, i) returns O(@, i+1),
         like l + (m + n) = l + m + n.
 
         Any other case returns CO(Op, A, O).
 
-    3. Atomic node A and compound operation CO.
+    3. Atomic operand A and compound operation operand CO.
         Note: CO(@, iA, jO(@, k)) does not exist.
         It would always be reduced to O(@, k+1); see also A @ O(@, k) in point 2.
 
@@ -431,37 +431,37 @@ def op(
 
         Any other case returns CO(Op, A, CO).
 
-    4. Atomic operation O and atomic node A.
+    4. Atomic operation operand O and atomic operand A.
         O(@, i) @ A returns O(@, i+1),
         like (k + l) + m = k + l + m.
 
         Any other case returns CO(Op, O, A).
 
-    5. Atomic operation O and atomic operation O.
+    5. Atomic operation operand O and atomic operation operand O.
         O(@, i) @ O(@, j) returns O(@, i+j),
         like (l + m) + (n + o) = l + m + n + o.
 
         Any other case returns CO(Op, O, O).
 
-    6. Atomic operation O and compound operation CO.
+    6. Atomic operation operand O and compound operation operand CO.
         O(@, i) @ CO(@, jA, kO) returns CO(@, (i+j)A, kO),
         like (l + m) + (n + o + (p * q)) = l + m + n + o + (p * q).
 
         Any other case returns CO(Op, O, CO).
 
-    7. Compound operation CO and atomic node A.
+    7. Compound operation operand CO and atomic operand A.
         CO(@, iA, jO) @ A returns CO(@, (i+1)A, jO),
         like (l + m + n + (o / p)) + q = l + m + n + o + q + (p / q).       
 
         Any other case returns CO(Op, CO, A).
 
-    8. Compound operation CO and atomic operation O.
+    8. Compound operation operand CO and atomic operation operand O.
         CO(@, iA, jO) @ O(@, k) returns CO(@, (i+k)A, jO),
         like (l + m + (p * q)) + (n + o) = l + m + n + o + (p * q).
 
         Any other case returns CO(Op, CO, O).
 
-    9. Compound operation CO and compound operation CO.
+    9. Compound operation operand CO and compound operation operand CO.
         CO(@, iA, jO) @ CO(@, lA, mO) returns CO(@, (i+l)A, (j+m)O),
         like (l + m + (p * q)) + (r + s + (t * u)) = l + m + r + s + (p * q) + (t * u).
          
