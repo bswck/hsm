@@ -473,7 +473,7 @@ def op(
     if o2 is toolkit.MISSING:
         if o1.is_A:
             return O(Op, o1)
-        if (o1.is_O or o1.is_CO) and o1.idempotent:
+        if (o1.is_O or o1.is_CO) and o1.operation.idempotent:
             return o1
         return CO(Op, o1)
 
