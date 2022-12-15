@@ -1,13 +1,13 @@
-from hsm.arith.base import Arithmetic
+from hsm.ops.operation import Operation
 
 
-class Operation(Arithmetic):
+class ArithmeticOperation(Operation):
     priority = 0
     min_args = 2
     max_args = None
 
 
-class Addition(Operation):
+class Addition(ArithmeticOperation):
     name = 'add'
     full_name = 'addition'
     associative = True
@@ -22,7 +22,7 @@ class Subtraction(Addition):
     commutative = False
 
 
-class Multiplication(Operation):
+class Multiplication(ArithmeticOperation):
     name = 'mul'
     full_name = 'multiplication'
     associative = True
@@ -42,7 +42,7 @@ class Division(Multiplication):
     commutative = False
     
 
-class Exponentiation(Operation):
+class Exponentiation(ArithmeticOperation):
     name = 'pow'
     full_name = 'power'
     chainable = False
@@ -53,14 +53,14 @@ class Root(Exponentiation):
     name = full_name = 'root'
 
 
-class AbsoluteValue(Operation):
+class AbsoluteValue(ArithmeticOperation):
     name = 'abs'
-    full_name = 'absolute value of number'
+    full_name = 'modulus'
     min_args = max_args = 1
     priority = Exponentiation.priority + 1
     
 
-class Relation(Arithmetic):
+class Relation(Operation):
     priority = float('inf')
     associative = False
     evaluates_to_bool = True
@@ -128,15 +128,15 @@ class ProperSubsetOf(SubsetOf):
     full_name = 'proper inclusion relation'
 
 
-class Union(Arithmetic):
+class Union(Operation):
     name = 'union'
 
 
-class Intersection(Arithmetic):
+class Intersection(Operation):
     name = 'intersection'
     
 
-class Difference(Arithmetic):
+class Difference(Operation):
     name = 'diff'
     full_name = 'set difference'
 
@@ -185,5 +185,5 @@ class ExclusiveOr(BooleanRelation):
     full_name = 'logical XOR - exclusive disjunction'
 
 
-class FunctionArithmetic(Arithmetic):
+class Function(Operation):
     priority = float('inf')

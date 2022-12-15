@@ -5,7 +5,7 @@ from typing import ClassVar
 from hsm.toolkit import Dataclass
 
 
-class Arithmetic(Dataclass):
+class Operation(Dataclass):
     name: str | None = None
     full_name: ClassVar[str | None] = None
     min_args: ClassVar[int | None] = None
@@ -17,9 +17,9 @@ class Arithmetic(Dataclass):
     chainable: ClassVar[bool | None] = None
     swapped: ClassVar[str | None] = None
     evaluates_to_bool: ClassVar[bool] = False
-    _swapped_cls: 'ClassVar[type[Arithmetic] | None]' = None
+    _swapped_cls: 'ClassVar[type[Operation] | None]' = None
 
-    _all_ariths = {}
+    _all_ops = {}
     _instances = weakref.WeakValueDictionary()
 
     def __new__(cls, name):
@@ -28,7 +28,7 @@ class Arithmetic(Dataclass):
         try:
             arith = cls._instances[name]
         except KeyError:
-            arith = cls._all_ariths[name]()
+            arith = cls._all_ops[name]()
             cls._instances[name] = arith
         return arith
 
@@ -56,28 +56,19 @@ class Arithmetic(Dataclass):
                     f'{self.name}: {type(operand).__name__!r}'
                 )
 
-    @staticmethod
-    def swap_operands(operands):
-        return operands
-
-    def swap(self, op, objects):
-        if self._swapped_cls is None:
-            raise ValueError(f'cannot swap {self.name} operation')
-        return type(op)(self._swapped_cls, *self.swap_operands(objects))
-
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         if isinstance(cls.name, str) and cls.name:
             cls.__ignore_missing_args__ = True
             cls.__new__ = functools.update_wrapper(lambda c: object.__new__(c), cls.__new__)
-            cls._all_ariths[cls.name] = cls
+            cls._all_ops[cls.name] = cls
             swapped_name = cls.swapped
             swapped_cls = cls._swapped_cls
             if swapped_cls:
                 cls.swapped = swapped_cls.name
                 swapped_cls._swapped_cls = cls
             elif swapped_name:
-                swapped_cls = cls._all_ariths.get(swapped_name)
+                swapped_cls = cls._all_ops.get(swapped_name)
                 if swapped_cls:
                     swapped_cls.swapped_name = cls.name
                     swapped_cls.swapped_cls = cls

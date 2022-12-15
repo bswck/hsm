@@ -1,7 +1,7 @@
-from hsm.arith.op import AtomicOperation
+from hsm.ops.operand import AtomicOperationNode
 
 
-subtraction = AtomicOperation('sub', 2, 0, 3, 6)
+subtraction = AtomicOperationNode('sub', 2, 0, 3, 6)
 print(subtraction)
 addition = subtraction.convert()
 print(addition)

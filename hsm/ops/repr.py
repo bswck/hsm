@@ -79,7 +79,7 @@ def composition(engine, arith, operation, operands, context=None, **kwds):
             engine.repr_operand(arith, operand, operation, context=context, **kwds),
             context.append(operand)
         )[0]
-        for operand in operands[:operation.arith.min_args]
+        for operand in operands[:operation.operation.min_args]
     ))
     if operation.chained:
         repr_string = functools.reduce(
@@ -89,7 +89,7 @@ def composition(engine, arith, operation, operands, context=None, **kwds):
                     engine.repr_operand(arith, operand, operation, context=context, **kwds),
                     context.append(operand)
                 )[0]
-                for operand in operands[operation.arith.min_args:]
+                for operand in operands[operation.operation.min_args:]
             ),
             repr_string
         )

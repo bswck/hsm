@@ -1,6 +1,6 @@
 import pytest
 
-from hsm.arith import op
+from hsm.ops import op
 
 
 @pytest.fixture
