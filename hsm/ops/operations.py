@@ -53,9 +53,10 @@ class Root(Exponentiation):
     name = full_name = 'root'
 
 
-class AbsoluteValue(ArithmeticOperation):
+class Modulus(ArithmeticOperation):
     name = 'abs'
     full_name = 'modulus'
+    idempotent = True
     min_args = max_args = 1
     priority = Exponentiation.priority + 1
     

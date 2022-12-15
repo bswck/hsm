@@ -196,13 +196,13 @@ def symbols(name_string):
         names = name_string
     else:
         names = name_string.replace(' ', ',').split(',')
-    return tuple(map(AtomicNode, names))
+    return tuple(map(AtomicOperand, names))
 
 
 @operand.register(numbers.Real)
 @operand.register(Symbol)
 @operand.register(str)
-class AtomicNode(Operand, toolkit.Dataclass):
+class AtomicOperand(Operand, toolkit.Dataclass):
     value: Symbol | numbers.Real = toolkit.Parameter(factory_key=True)
     # domain = toolkit.Parameter(default='R', factory_key=True)
 
@@ -238,7 +238,7 @@ class AtomicNode(Operand, toolkit.Dataclass):
         return id(self)
 
     def __neg__(self):
-        return AtomicNode(-self.value)
+        return AtomicOperand(-self.value)
 
 
 _ = 'abcdefghijklmnopqrstuvwxyz'
@@ -246,14 +246,14 @@ a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z = s
 
 
 @toolkit.coercion_factory(lambda tp: toolkit.Coercion(tp, cast=operand))
-class AtomicOperationNode(toolkit.Dataclass, Operand):
+class AtomicOperationOperand(toolkit.Dataclass, Operand):
     operation: Operation = toolkit.Argument()
-    operands: tuple[AtomicNode, ...] = toolkit.Arguments(allow_hint_coercions=False)
+    operands: tuple[AtomicOperand, ...] = toolkit.Arguments(allow_hint_coercions=False)
 
     is_O = True
     chained = False
     _const = False
-    _allowed_types = AtomicNode
+    _allowed_types = AtomicOperand
 
     def __post_init__(self):
         super().__post_init__()
@@ -292,28 +292,28 @@ class AtomicOperationNode(toolkit.Dataclass, Operand):
         return self._repr_long()
 
 
-class CompoundOperationNode(AtomicOperationNode):
+class CompoundOperationOperand(AtomicOperationOperand):
     operands = toolkit.Arguments(
         factory_key=True, allow_hint_coercions=False
-    )  # type: tuple[AtomicNode | AtomicOperationNode | CompoundOperationNode, ...]
+    )  # type: tuple[AtomicOperand | AtomicOperationOperand | CompoundOperationOperand, ...]
 
     is_O = False
     is_CO = True
 
     def __post_init__(self):
-        self._allowed_types = (AtomicNode, AtomicOperationNode, CompoundOperationNode)
+        self._allowed_types = (AtomicOperand, AtomicOperationOperand, CompoundOperationOperand)
         super().__post_init__()
         atomic_nodes = []
         atomic_ops = []
         compound_ops = []
 
-        for operand in self.operands:
-            if isinstance(operand, AtomicNode):
-                atomic_nodes.append(operand)
-            elif isinstance(operand, AtomicOperationNode):
-                atomic_ops.append(operand)
-            elif isinstance(operand, CompoundOperationNode):
-                compound_ops.append(operand)
+        for oper in self.operands:
+            if isinstance(oper, AtomicOperand):
+                atomic_nodes.append(oper)
+            elif isinstance(oper, AtomicOperationOperand):
+                atomic_ops.append(oper)
+            elif isinstance(oper, CompoundOperationOperand):
+                compound_ops.append(oper)
 
         self._atomic_nodes = tuple(atomic_nodes)
         self._atomic_ops = tuple(atomic_ops)
@@ -370,11 +370,13 @@ class _OpFunction:
 @_OpFunction
 def op(
     Op: Operation,
-    o1: AtomicNode | AtomicOperationNode | CompoundOperationNode,
-    o2: AtomicNode | AtomicOperationNode | CompoundOperationNode | toolkit._Sentinel = toolkit.MISSING,
+    o1: AtomicOperand | AtomicOperationOperand | CompoundOperationOperand,
+    o2: AtomicOperand | AtomicOperationOperand | CompoundOperationOperand | toolkit._Sentinel = (
+        toolkit.MISSING
+    ),
     *,
-    O: type[AtomicOperationNode] = AtomicOperationNode,
-    CO: type[CompoundOperationNode] = CompoundOperationNode,
+    O: type[AtomicOperationOperand] = AtomicOperationOperand,
+    CO: type[CompoundOperationOperand] = CompoundOperationOperand,
 ):
     """
     Glossary
@@ -471,6 +473,8 @@ def op(
     if o2 is toolkit.MISSING:
         if o1.is_A:
             return O(Op, o1)
+        if (o1.is_O or o1.is_CO) and o1.idempotent:
+            return o1
         return CO(Op, o1)
 
     o2 = operand(o2)
@@ -504,8 +508,8 @@ def op(
     return CO(Op, o1, o2)
 
 
-@operand.register(AtomicNode)
-@operand.register(AtomicOperationNode)
-@operand.register(CompoundOperationNode)
+@operand.register(AtomicOperand)
+@operand.register(AtomicOperationOperand)
+@operand.register(CompoundOperationOperand)
 def identity(obj):
     return obj

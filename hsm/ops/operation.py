@@ -17,6 +17,8 @@ class Operation(Dataclass):
     chainable: ClassVar[bool | None] = None
     swapped: ClassVar[str | None] = None
     evaluates_to_bool: ClassVar[bool] = False
+    idempotent: ClassVar[bool] = False
+
     _swapped_cls: 'ClassVar[type[Operation] | None]' = None
 
     _all_ops = {}
