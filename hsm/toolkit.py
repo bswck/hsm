@@ -104,19 +104,7 @@ def repr_ident(
     return repr_string
 
 
-def nested_repr_ident(
-    collection,
-    ident=0,
-    split=True,
-    prefix='',
-    mapper=None,
-    brackets='()',
-    sep=','
-):
-    return repr_ident(
-        collection, ident=ident, split=split, prefix=prefix,
-        mapper=mapper, brackets=brackets, sep=sep
-    )
+nested_repr_ident = functools.partial(repr_ident, split=True)
 
 
 def repr_ident_dict(
