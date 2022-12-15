@@ -28,11 +28,11 @@ class Operation(Dataclass):
         if isinstance(name, cls):
             return name
         try:
-            arith = cls._instances[name]
+            op = cls._instances[name]
         except KeyError:
-            arith = cls._all_ops[name]()
-            cls._instances[name] = arith
-        return arith
+            op = cls._all_ops[name]()
+            cls._instances[name] = op
+        return op
 
     def validate_operands(self, operation, operands, allowed_types):
         nargs = len(operands)

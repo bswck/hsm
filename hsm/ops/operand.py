@@ -210,7 +210,7 @@ class AtomicOperand(Operand, toolkit.Dataclass):
     const = False
     priority = 0
     evaluates_to_bool = False
-    arith = None
+    operation = None
     _name = 'atomic'
 
     def __post_init__(self):
