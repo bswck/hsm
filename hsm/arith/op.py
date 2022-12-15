@@ -343,6 +343,10 @@ class _OpFunction:
         self.__op = fn
 
     def __call__(self, *args, **kwargs):
+        if not args:
+            raise TypeError(
+                f'{self.__op.__qualname__}() missing 1 required positional argument: \'obj\''
+            )
         if len(args) == 1 and not kwargs:
             obj, = args
             return hsm_operand(obj)
