@@ -467,7 +467,10 @@ def op(
     o1 = hsm_operand(o1)
 
     if o2 is toolkit.MISSING:
-        return O(R, o1) if o1.is_A else CO(R, o1)
+        if o1.is_A:
+            return O(R, o1)
+        return CO(R, o1)
+
     o2 = hsm_operand(o2)
 
     if o1.is_A:
