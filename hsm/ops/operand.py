@@ -232,7 +232,7 @@ class AtomicOperand(Operand, toolkit.Dataclass):
 
     def __hash__(self):
         # Since .value is hashable and every value of same hash produces same instance,
-        # all objects AtomicNode(value, domain) for the equal value and domain are the same
+        # all objects AtomicOperand(value, domain) for the equal value and domain are the same
         # instance. Thus, we can use ID of the instance as a relevant value-dependent hash
         # of the instance.
         return id(self)
@@ -408,9 +408,9 @@ def op(
     Return types depending on the input operands
     --------------------------------------------
     Shortcuts used:
-    * `A`, referring to :class:`AtomicNode`;
-    * `O`, referring to :class:`AtomicOperation`;
-    * `CO`, referring to :class:`CompoundOperation`.
+    * `A`, referring to :class:`AtomicOperand`;
+    * `O`, referring to :class:`AtomicOperationOperand;
+    * `CO`, referring to :class:`CompoundOperationOperand.
     
     1. Atomic node A and atomic node A.
         A Op A returns O(Op, 2),
