@@ -340,20 +340,27 @@ class CompoundOperation(AtomicOperation):
 
 class _OpFunction:
     def __init__(self, fn):
-        self.__fn = fn
+        self.__op = fn
 
     def __call__(self, *args, **kwargs):
         if len(args) == 1 and not kwargs:
             obj, = args
             return hsm_operand(obj)
-        return self.__fn(*args, **kwargs)
+        R, args, reduce = args[0], args[1:3], args[3:]
+        initial = self.__op(R, *args, **kwargs)
+        if reduce:
+            return functools.reduce(
+                functools.partial(self.__op, R, **kwargs),
+                reduce, initial
+            )
+        return initial
 
     @staticmethod
-    def _name_xform(name):
+    def _sanitize_attr_name(name):
         return name.replace('_', ' ').rstrip()
 
     def __getattr__(self, item):
-        return functools.partial(self.__fn, self._name_xform(item))
+        return functools.partial(self.__op, self._sanitize_attr_name(item))
 
 
 @_OpFunction
@@ -382,7 +389,7 @@ def op(
         Domain: i ∈ <1, ∞)
         Same as O(S, iA); atomic operation with arithmetic R and k atomic nodes.
     CO(R, iA, jO)
-        Domain: i ∈ <0, ∞) ∧ j <1, ∞)) ∨ (i ∈ <1, ∞) ∧ j <0, ∞)
+        Domain: (i ∈ <0, ∞) ∧ j <1, ∞)) ∨ (i ∈ <1, ∞) ∧ j <0, ∞))
         Compound operation k with operation arith R.
     Operation arith
         For example: + (addition). Consequently, example atomic

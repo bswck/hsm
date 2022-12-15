@@ -2,14 +2,15 @@ import functools
 import weakref
 from typing import ClassVar
 
-from hsm.toolkit import Dataclass, Argument
+from hsm.toolkit import Dataclass
 
 
 class Arithmetic(Dataclass):
     _all_ariths = {}
     _instances = weakref.WeakValueDictionary()
 
-    name = Argument()
+    name: str | None = None
+    full_name: ClassVar[str | None] = None
     min_args: ClassVar[int | None] = None
     max_args: ClassVar[int | float | None] = None
     priority: ClassVar[int] = 0
@@ -38,13 +39,13 @@ class Arithmetic(Dataclass):
             max_args = self.max_args
             if nargs < min_args:
                 raise ValueError(
-                    f'too few arguments for {self.name} '
+                    f'too few arguments for {self.full_name} '
                     f'(expected at least {min_args}, got {nargs})'
                 )
             if nargs > max_args:
                 if not self.chainable:
                     raise ValueError(
-                        f'{self.name} operation is not chainable '
+                        f'{self.full_name} operation is not chainable '
                         f'(too many arguments passed, maximally {max_args} accepted)'
                     )
                 operation.chained = True
@@ -66,7 +67,7 @@ class Arithmetic(Dataclass):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        if cls.name:
+        if isinstance(cls.name, str) and cls.name:
             cls.__ignore_missing_args__ = True
             cls.__new__ = functools.update_wrapper(lambda c: object.__new__(c), cls.__new__)
             cls._all_ariths[cls.name] = cls
@@ -88,6 +89,8 @@ class Arithmetic(Dataclass):
                     cls.chainable = cls.min_args > 1
             if cls.max_args is None:
                 cls.max_args = float('inf')
+            if not cls.full_name:
+                cls.full_name = cls.name
 #
 #
 # class Domain(Dataclass):
