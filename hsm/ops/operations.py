@@ -158,7 +158,7 @@ class BooleanRelation(Relation):
                 non_boolean.append(repr(operand) + f' ({operand.name})')
         if non_boolean:
             raise ValueError(
-                f'non-boolean operand(s) for {self.name!r} relation: {", ".join(non_boolean)}'
+                f'non-boolean operand(s) for {self.full_name!r} relation: {", ".join(non_boolean)}'
             )
 
 
