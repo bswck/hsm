@@ -280,6 +280,17 @@ class AtomicOperation(toolkit.Dataclass, Operand):
     def __hash__(self):
         return hash(self.operands)
 
+    def _repr_long(self):
+        def mapper(name, item, ident=0):
+            if name == 'operands':
+                return toolkit.nested_repr_ident(item, ident=ident)
+            return repr(item)
+
+        return self.repr(ident=2, mapper=mapper)
+
+    def __repr__(self):
+        return self._repr_long()
+
 
 class CompoundOperation(AtomicOperation):
     operands: 'tuple[AtomicNode | AtomicOperation | CompoundOperation, ...]' = toolkit.Arguments(
@@ -325,13 +336,6 @@ class CompoundOperation(AtomicOperation):
         if self.arith.associative:
             return *self.atomic_nodes, *self.atomic_operations, *self.compound_operations
         return self.operands
-
-    def __repr__(self):
-        def mapper(name, item, ident=0):
-            if name == 'operands':
-                return toolkit.nested_repr_ident(item, ident=ident)
-            return repr(item)
-        return self.repr(ident=4, mapper=mapper)
 
 
 class _OpFunction:
