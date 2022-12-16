@@ -17,13 +17,13 @@ class Operand:
     is_CO = False   
     
     @staticmethod
-    def _op(Op, operand_1, operand_2=toolkit.MISSING):
-        return op(Op, operand_1, operand_2)
+    def _op(Op, o1, o2=toolkit.MISSING):
+        return op(Op, o1, o2)
 
-    def reduce_join(self, op_name, *operands):
+    def reduce_join(self, Op, *operands):
         operands = list(operands)
         return functools.reduce(
-            functools.partial(self._op, op_name),
+            functools.partial(self._op, Op),
             operands, operands.pop(0)
         )
 
