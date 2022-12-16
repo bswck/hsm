@@ -451,13 +451,13 @@ def op(
 
     7. Compound operation operand CO and atomic operand A.
         CO(@, iA, jO) @ A returns CO(@, (i+1)A, jO),
-        like (l + m + n + (o / p)) + q = l + m + n + o + q + (p / q).       
+        like (l + m + n + (o / p)) + q = l + m + n + o / p + q.
 
         Any other case returns CO(Op, CO, A).
 
     8. Compound operation operand CO and atomic operation operand O.
         CO(@, iA, jO) @ O(@, k) returns CO(@, (i+k)A, jO),
-        like (l + m + (p * q)) + (n + o) = l + m + n + o + (p * q).
+        like (l + m + (n * o)) + (p + q) = l + m + (n * o) + p + q.
 
         Any other case returns CO(Op, CO, O).
 
