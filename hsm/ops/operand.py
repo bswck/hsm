@@ -479,9 +479,8 @@ def op(
 
     o2 = operand(o2)
 
-    if o1.is_A:
-        if o2.is_A:
-            return O(Op, o1, o2)
+    if o1.is_A and o2.is_A:
+        return O(Op, o1, o2)
 
     if Op.associative and (o1.operation is Op or o2.operation is Op):
         if o1.is_A:
