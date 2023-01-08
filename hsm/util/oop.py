@@ -208,26 +208,6 @@ def marker(
         @abstract
         def my_func():
             pass
-
-    Average counter
-        class MyClass:
-            average_cost = 0
-
-        cost = marker(
-            'average', lambda _, attr, cost: setattr(
-                MyClass, attr, (getattr(MyClass, attr)+cost)/2)
-            )
-        )
-
-        @cost(1)
-        class Subclass1:
-            ...
-
-        @cost(3)
-        class Subclass2:
-            ...
-
-        assert MyClass.average_cost == 2
     """
 
     def decorator(runtime_value):
