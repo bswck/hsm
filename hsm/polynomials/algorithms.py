@@ -19,7 +19,7 @@ def horner(polynomial, binomial):
     # Hence 4(x**3)-2(x**2)+x-3 = (x-1)(4(x**2)+2x+3)
     # And the polynomial is divisible by the binomial, because remainder == 0.
     coef_1, *coeffs = polynomial.coeffs
-    root = -binomial.convert('ADD').rhs
+    root = -binomial.transform.rhs
     quotient = [coef_1]
     for coef in coeffs:
         quotient.append(quotient[-1] * root + coef)

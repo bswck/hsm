@@ -1,6 +1,6 @@
 import pytest
 
-from hsm.ops import op
+from hsm.algebra.manipulating import op
 
 
 @pytest.fixture

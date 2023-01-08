@@ -6,6 +6,10 @@ class ConstructorError(HSMError):
     pass
 
 
+class NoSuchOperation(HSMError):
+    pass
+
+
 class CoercionError(HSMError):
     MSG_DEFAULT = 'no information'
 
@@ -33,7 +37,7 @@ class CoercionError(HSMError):
     def __bool__(self):
         return False
 
-    def __new__(cls, obj=None, name=None):
+    def __new__(cls, obj=None, param=None):
         if isinstance(obj, cls):
             return obj
         return Exception.__new__(cls)
